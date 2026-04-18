@@ -1,0 +1,95 @@
+canvas:
+  width: 1080
+  height: 1080
+  background: "#F5C518"   # NextBigGames signature yellow
+
+colors:
+  text_primary: "#000000"
+  text_inverted: "#FFFFFF"
+  pill_background: "#000000"
+  tile_background: "#FFFFFF"
+  underline: "#000000"
+  plus_color: "#000000"
+  publisher_color: "#000000"
+
+fonts:
+  title:
+    path: "assets/fonts/title.ttf"
+    fallback: null                  # will use bundled default if missing
+    size_range: [48, 88]
+  subtitle:
+    path: "assets/fonts/title.ttf"
+    fallback: null
+    size: 36
+  inspiration_name:
+    path: "assets/fonts/body.ttf"
+    fallback: null
+    size_by_count:
+      2: 42
+      3: 38
+      4: 32
+  inspiration_publisher:
+    path: "assets/fonts/body.ttf"
+    fallback: null
+    size_by_count:
+      2: 36
+      3: 32
+      4: 28
+  branding:
+    path: "assets/fonts/body.ttf"
+    fallback: null
+    size: 30
+  pill:
+    path: "assets/fonts/body.ttf"
+    fallback: null
+    size: 30
+  profile:
+    path: "assets/fonts/body.ttf"
+    fallback: null
+    size: 28
+
+layout:
+  header:
+    top_margin: 48
+    height: 64
+    pill_padding_x: 24
+    pill_padding_y: 12
+    pill_radius: 32
+    right_margin: 48
+  title_block:
+    top_margin: 32
+    left_margin: 52
+    title_max_width: 460
+    underline_thickness: 4
+    underline_margin_top: 14
+    underline_width: 460
+    publisher_margin_top: 12
+  left_column:
+    x_start: 52
+    x_end: 520
+    y_start: 370
+    y_end: 1020
+    icon_radius: 28
+    text_left_offset: 24     # gap between icon right edge and text
+    plus_size_by_count:
+      2: 72
+      3: 60
+      4: 50
+  phone_mockup:
+    x_start: 566
+    y_start: 88
+    width: 466
+    # height auto-calculated to maintain phone aspect ratio
+    corner_radius: 48
+    screen_inset_top: 80
+    screen_inset_bottom: 40
+    screen_inset_sides: 20
+
+branding:
+  logo_text: "NextBigGames"
+  profile:
+    handle: "/Vamsi Penmetsa"
+    avatar_path: "assets/profile/vamsi.png"
+    linkedin_icon_path: "assets/icons/linkedin.png"
+    avatar_size: 56
+    linkedin_icon_size: 32

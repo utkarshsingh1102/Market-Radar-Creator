@@ -1,0 +1,300 @@
+{% extends "base.html" %}
+{% block title %}New Draft — Market Radar Forge{% endblock %}
+
+{% block extra_head %}
+<style>
+.layout { display: grid; grid-template-columns: 480px 1fr; gap: 32px; }
+.section-title { font-size: 16px; font-weight: 700; margin-bottom: 18px; padding-bottom: 10px; border-bottom: 2px solid #eee; }
+.insp-block { background: var(--gray-50); border: 1px solid var(--gray-200); border-radius: 10px; padding: 18px; margin-bottom: 12px; }
+.insp-block .insp-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+.insp-num { font-size: 12px; font-weight: 700; color: var(--gray-600); text-transform: uppercase; }
+.tab-row { display: flex; gap: 8px; margin-bottom: 10px; }
+.tab-btn { padding: 5px 14px; border-radius: 6px; border: 1px solid var(--gray-200); background: white; font-size: 12px; cursor: pointer; }
+.tab-btn.active { background: var(--black); color: white; border-color: var(--black); }
+.error { color: #c0392b; font-size: 13px; margin-top: 8px; }
+.drop-zone { border: 2px dashed var(--gray-200); border-radius: 8px; padding: 24px; text-align: center;
+  font-size: 13px; color: var(--gray-400); cursor: pointer; transition: border-color .2s; }
+.drop-zone:hover { border-color: var(--black); }
+.drop-zone input[type=file] { display: none; }
+.upload-preview { max-width: 100%; border-radius: 8px; margin-top: 8px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div style="margin-bottom:24px">
+  <h1 style="font-size:26px;font-weight:800;">New Market Radar Post</h1>
+  <p style="color:var(--gray-600);margin-top:4px;font-size:14px;">Fill in the brief below or paste JSON directly. 2–4 inspirations required.</p>
+</div>
+
+<div class="layout" x-data="draftForm()" x-init="init()">
+
+  <!-- ── Left: Form ─────────────────────────────────────────────────────── -->
+  <div>
+
+    <!-- Mode toggle -->
+    <div class="tab-row" style="margin-bottom:20px">
+      <button class="tab-btn" :class="mode==='form'?'active':''" @click="mode='form'">Form</button>
+      <button class="tab-btn" :class="mode==='json'?'active':''" @click="mode='json'">Paste JSON</button>
+    </div>
+
+    <!-- JSON mode -->
+    <div x-show="mode==='json'" class="card">
+      <div class="field">
+        <label>Brief JSON</label>
+        <textarea x-model="rawJson" placeholder='{ "main_game": {...}, "inspirations": [...] }'></textarea>
+      </div>
+      <button class="btn btn-primary" @click="submitJson" :disabled="loading">
+        <span x-show="loading" class="spinner"></span>
+        <span x-text="loading?'Generating…':'Generate Post'"></span>
+      </button>
+      <p class="error" x-text="error" x-show="error"></p>
+    </div>
+
+    <!-- Form mode -->
+    <div x-show="mode==='form'">
+
+      <div class="card" style="margin-bottom:20px">
+        <div class="section-title">Main Game</div>
+
+        <div class="field">
+          <label>Game Name *</label>
+          <input type="text" x-model="form.main_game.name" placeholder="Airport Jam: Crowd Escape" />
+        </div>
+        <div class="field">
+          <label>Publisher</label>
+          <input type="text" x-model="form.main_game.publisher" placeholder="Devrim Eribol" />
+        </div>
+
+        <div class="field">
+          <label>Screenshot</label>
+          <div class="drop-zone" @click="$refs.ssFile.click()" @dragover.prevent @drop.prevent="handleFileDrop($event,'screenshot')">
+            <input type="file" accept="image/*" x-ref="ssFile" @change="handleFileSelect($event,'screenshot')" />
+            <template x-if="!form.main_game._ssPreview">
+              <div>📱 Click or drag screenshot here</div>
+            </template>
+            <template x-if="form.main_game._ssPreview">
+              <img :src="form.main_game._ssPreview" class="upload-preview" style="max-height:120px" />
+            </template>
+          </div>
+          <p x-show="form.main_game._ssUploadId" style="font-size:12px;color:green;margin-top:4px">
+            ✓ Uploaded: <span x-text="form.main_game._ssUploadId"></span>
+          </p>
+        </div>
+
+        <div class="row">
+          <div class="field">
+            <label>Series #</label>
+            <input type="number" x-model.number="form.meta.series_number" placeholder="34" />
+          </div>
+        </div>
+      </div>
+
+      <!-- Inspirations -->
+      <div class="card" style="margin-bottom:20px">
+        <div class="insp-header">
+          <span class="section-title" style="margin:0;border:none;padding:0">Inspirations</span>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-sm btn-secondary" @click="removeInsp" :disabled="form.inspirations.length<=2">− Remove</button>
+            <button class="btn btn-sm btn-primary" @click="addInsp" :disabled="form.inspirations.length>=4">+ Add</button>
+          </div>
+        </div>
+        <p style="font-size:12px;color:var(--gray-400);margin-bottom:16px">
+          <span x-text="form.inspirations.length"></span>/4 inspirations
+        </p>
+
+        <template x-for="(insp, i) in form.inspirations" :key="i">
+          <div class="insp-block">
+            <div class="insp-header">
+              <span class="insp-num" x-text="'Inspiration ' + (i+1)"></span>
+            </div>
+            <div class="row">
+              <div class="field">
+                <label>Game Name *</label>
+                <input type="text" x-model="insp.name" placeholder="Pixel flow" />
+              </div>
+              <div class="field">
+                <label>Publisher</label>
+                <input type="text" x-model="insp.publisher" placeholder="loom games" />
+              </div>
+            </div>
+
+            <div class="field">
+              <label>Icon Source</label>
+              <div class="tab-row">
+                <button class="tab-btn" :class="insp._iconMode==='auto'?'active':''" @click="insp._iconMode='auto'">Auto (iTunes)</button>
+                <button class="tab-btn" :class="insp._iconMode==='upload'?'active':''" @click="insp._iconMode='upload'">Upload</button>
+              </div>
+            </div>
+
+            <div x-show="insp._iconMode==='auto'" class="field">
+              <label>Search Query</label>
+              <input type="text" x-model="insp._query" :placeholder="insp.name + ' ' + (insp.publisher||'')" />
+              <p style="font-size:11px;color:var(--gray-400);margin-top:4px">Searches iTunes App Store automatically</p>
+            </div>
+
+            <div x-show="insp._iconMode==='upload'" class="field">
+              <label>Icon Image</label>
+              <div class="drop-zone" @click="$refs['iconFile'+i][0].click()" @dragover.prevent @drop.prevent="handleIconDrop($event, i)">
+                <input type="file" accept="image/*" :x-ref="'iconFile'+i" @change="handleIconSelect($event, i)" style="display:none" />
+                <template x-if="!insp._iconPreview">
+                  <div>🎮 Click or drag icon here</div>
+                </template>
+                <template x-if="insp._iconPreview">
+                  <img :src="insp._iconPreview" class="upload-preview" style="max-height:80px;max-width:80px;border-radius:12px" />
+                </template>
+              </div>
+            </div>
+          </div>
+        </template>
+      </div>
+
+      <button class="btn btn-yellow" style="width:100%;justify-content:center;font-size:15px;padding:14px" @click="submitForm" :disabled="loading">
+        <span x-show="loading" class="spinner"></span>
+        <span x-text="loading ? 'Generating Post…' : '✨ Generate Post'"></span>
+      </button>
+      <p class="error" x-text="error" x-show="error" style="margin-top:10px"></p>
+    </div>
+  </div>
+
+  <!-- ── Right: Preview placeholder ───────────────────────────────────────── -->
+  <div>
+    <div class="card" style="min-height:400px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;">
+      <div style="font-size:48px">🎨</div>
+      <div style="font-size:16px;font-weight:600;color:var(--gray-600)">Preview will appear here</div>
+      <div style="font-size:13px;color:var(--gray-400)">Fill the form and click Generate</div>
+    </div>
+  </div>
+</div>
+
+<script>
+function draftForm() {
+  return {
+    mode: 'form',
+    loading: false,
+    error: '',
+    rawJson: '',
+    form: {
+      main_game: { name: '', publisher: '', _ssPreview: null, _ssUploadId: null },
+      inspirations: [
+        { name: '', publisher: '', _iconMode: 'auto', _query: '', _iconPreview: null, _iconUploadId: null },
+        { name: '', publisher: '', _iconMode: 'auto', _query: '', _iconPreview: null, _iconUploadId: null },
+      ],
+      meta: { series_number: null }
+    },
+
+    init() {},
+
+    addInsp() {
+      if (this.form.inspirations.length < 4)
+        this.form.inspirations.push({ name: '', publisher: '', _iconMode: 'auto', _query: '', _iconPreview: null, _iconUploadId: null });
+    },
+    removeInsp() {
+      if (this.form.inspirations.length > 2)
+        this.form.inspirations.pop();
+    },
+
+    async handleFileSelect(evt, type) {
+      const file = evt.target.files[0];
+      if (!file) return;
+      if (type === 'screenshot') await this.uploadScreenshot(file);
+    },
+    async handleFileDrop(evt, type) {
+      const file = evt.dataTransfer.files[0];
+      if (!file) return;
+      if (type === 'screenshot') await this.uploadScreenshot(file);
+    },
+    async uploadScreenshot(file) {
+      const id = await this._upload(file);
+      if (id) {
+        this.form.main_game._ssUploadId = id;
+        this.form.main_game._ssPreview = URL.createObjectURL(file);
+      }
+    },
+    async handleIconSelect(evt, idx) {
+      const file = evt.target.files[0];
+      if (!file) return;
+      await this.uploadIcon(file, idx);
+    },
+    async handleIconDrop(evt, idx) {
+      const file = evt.dataTransfer.files[0];
+      if (!file) return;
+      await this.uploadIcon(file, idx);
+    },
+    async uploadIcon(file, idx) {
+      const id = await this._upload(file);
+      if (id) {
+        this.form.inspirations[idx]._iconUploadId = id;
+        this.form.inspirations[idx]._iconPreview = URL.createObjectURL(file);
+      }
+    },
+
+    async _upload(file) {
+      const fd = new FormData();
+      fd.append('file', file);
+      const r = await fetch('/uploads', { method: 'POST', body: fd });
+      if (!r.ok) return null;
+      const d = await r.json();
+      return d.upload_id;
+    },
+
+    _buildBrief() {
+      const f = this.form;
+      if (!f.main_game._ssUploadId) throw new Error('Please upload a screenshot for the main game.');
+      const inspirations = f.inspirations.map((insp, i) => {
+        if (!insp.name) throw new Error(`Inspiration ${i+1}: name is required.`);
+        const icon = insp._iconMode === 'upload'
+          ? { source: 'upload', upload_id: insp._iconUploadId || '' }
+          : { source: 'auto', query: insp._query || (insp.name + ' ' + (insp.publisher||'')).trim() };
+        return { name: insp.name, publisher: insp.publisher || undefined, icon };
+      });
+      return {
+        main_game: {
+          name: f.main_game.name,
+          publisher: f.main_game.publisher || undefined,
+          screenshot: { source: 'upload', upload_id: f.main_game._ssUploadId }
+        },
+        inspirations,
+        meta: { series_number: f.meta.series_number || undefined }
+      };
+    },
+
+    async submitForm() {
+      this.error = '';
+      this.loading = true;
+      try {
+        const brief = this._buildBrief();
+        await this._createDraft(brief);
+      } catch(e) {
+        this.error = e.message;
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    async submitJson() {
+      this.error = '';
+      this.loading = true;
+      try {
+        const brief = JSON.parse(this.rawJson);
+        await this._createDraft(brief);
+      } catch(e) {
+        this.error = e.message;
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    async _createDraft(brief) {
+      const r = await fetch('/drafts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(brief)
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.detail || JSON.stringify(d));
+      window.location.href = `/drafts/${d.id}/edit`;
+    }
+  }
+}
+</script>
+{% endblock %}

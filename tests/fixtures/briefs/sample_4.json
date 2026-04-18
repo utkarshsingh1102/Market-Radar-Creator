@@ -1,0 +1,28 @@
+{
+  "main_game": {
+    "name": "Bubble Sort",
+    "publisher": "Ketchapp",
+    "screenshot": { "source": "upload", "upload_id": "placeholder.png" }
+  },
+  "inspirations": [
+    {
+      "name": "Ball Sort",
+      "publisher": "IEC Global",
+      "icon": { "source": "auto", "query": "Ball Sort IEC Global" }
+    },
+    {
+      "name": "Hoop Sort",
+      "icon": { "source": "auto", "query": "Hoop Sort puzzle" }
+    },
+    {
+      "name": "Water Sort",
+      "publisher": "IriySoft",
+      "icon": { "source": "auto", "query": "Water Sort IriySoft" }
+    },
+    {
+      "name": "Color Fill",
+      "icon": { "source": "auto", "query": "Color Fill puzzle mobile" }
+    }
+  ],
+  "meta": { "series_number": 36 }
+}

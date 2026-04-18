@@ -1,0 +1,227 @@
+{% extends "base.html" %}
+{% block title %}Edit Draft — {{ draft.game_name }}{% endblock %}
+
+{% block extra_head %}
+<style>
+.edit-layout { display: grid; grid-template-columns: 420px 1fr; gap: 32px; align-items: start; }
+.preview-wrap { position: sticky; top: 24px; }
+.preview-img { width: 100%; border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,.15); display: block; }
+.preview-loading { opacity: .5; transition: opacity .3s; }
+.insp-block { background: var(--gray-50); border: 1px solid var(--gray-200); border-radius: 10px; padding: 16px; margin-bottom: 10px; }
+.insp-num { font-size: 11px; font-weight: 700; color: var(--gray-400); text-transform: uppercase; margin-bottom: 10px; }
+.icon-thumb { width: 48px; height: 48px; border-radius: 10px; object-fit: cover; }
+.icon-upload-btn { display: inline-block; padding: 5px 12px; border: 1px solid var(--gray-200); border-radius: 6px;
+  font-size: 12px; cursor: pointer; background: white; }
+.status-ok::before { content: '✓ '; color: green; }
+.status-needs_upload::before { content: '⚠ '; color: orange; }
+.status-error::before { content: '✗ '; color: red; }
+.actions-bar { display: flex; gap: 12px; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--gray-200); }
+.saving-indicator { font-size: 12px; color: var(--gray-400); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px" x-data>
+  <div>
+    <h1 style="font-size:22px;font-weight:800;">{{ draft.game_name }}</h1>
+    <p style="font-size:13px;color:var(--gray-400);margin-top:2px">Draft {{ draft.id }} · edit #{{ draft.edit_count }}</p>
+  </div>
+  <a href="/drafts/{{ draft.id }}/export" class="btn btn-yellow" download>
+    ⬇ Export PNG
+  </a>
+</div>
+
+<div class="edit-layout" x-data="editDraft('{{ draft.id }}', '{{ preview_url }}')" x-init="init()">
+
+  <!-- ── Left: Edit Form ───────────────────────────────────────────────── -->
+  <div>
+    <div class="card" style="margin-bottom:20px">
+      <div style="font-size:14px;font-weight:700;margin-bottom:16px;padding-bottom:10px;border-bottom:2px solid #eee">Main Game</div>
+
+      <div class="field">
+        <label>Game Name</label>
+        <input type="text" x-model="fields.game_name" @input.debounce.600ms="save()" />
+      </div>
+      <div class="field">
+        <label>Publisher</label>
+        <input type="text" x-model="fields.publisher" @input.debounce.600ms="save()" />
+      </div>
+
+      <div class="field">
+        <label>Screenshot</label>
+        <div style="display:flex;align-items:center;gap:10px">
+          <template x-if="screenshotPreview">
+            <img :src="screenshotPreview" style="width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid var(--gray-200)" />
+          </template>
+          <label class="icon-upload-btn">
+            Replace Screenshot
+            <input type="file" accept="image/*" style="display:none" @change="replaceImage($event,'main_screenshot')" />
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <!-- Inspirations -->
+    <div class="card">
+      <div style="font-size:14px;font-weight:700;margin-bottom:16px;padding-bottom:10px;border-bottom:2px solid #eee">Inspirations</div>
+
+      {% for insp in draft.inspirations %}
+      <div class="insp-block">
+        <div class="insp-num">Inspiration {{ loop.index }}</div>
+        <div class="row">
+          <div class="field">
+            <label>Name</label>
+            <input type="text" x-model="fields.inspirations[{{ loop.index0 }}].name" @input.debounce.600ms="save()" />
+          </div>
+          <div class="field">
+            <label>Publisher</label>
+            <input type="text" x-model="fields.inspirations[{{ loop.index0 }}].publisher" @input.debounce.600ms="save()" />
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;margin-top:8px">
+          <template x-if="iconPreviews[{{ loop.index0 }}]">
+            <img :src="iconPreviews[{{ loop.index0 }}]" class="icon-thumb" />
+          </template>
+          <span class="status-{{ insp.icon_status.value }}">{{ insp.icon_status.value }}</span>
+          <label class="icon-upload-btn">
+            Replace Icon
+            <input type="file" accept="image/*" style="display:none"
+              @change="replaceImage($event,'inspiration_{{ loop.index0 }}_icon')" />
+          </label>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+
+    <div class="actions-bar">
+      <button class="btn btn-secondary btn-sm" @click="regenerate()" :disabled="saving">
+        <span x-show="saving" class="spinner"></span>
+        🔄 Re-render
+      </button>
+      <span class="saving-indicator" x-text="saveMsg"></span>
+    </div>
+  </div>
+
+  <!-- ── Right: Live Preview ───────────────────────────────────────────── -->
+  <div class="preview-wrap">
+    <div class="card" style="padding:16px">
+      <div style="font-size:12px;font-weight:600;color:var(--gray-400);margin-bottom:10px;text-transform:uppercase;">
+        Preview
+        <span style="float:right" x-text="'v' + editCount"></span>
+      </div>
+      <img :src="previewUrl" class="preview-img" :class="saving?'preview-loading':''"
+           @load="onPreviewLoaded()" :key="previewUrl" />
+      <div style="margin-top:12px;display:flex;justify-content:space-between;align-items:center">
+        <span style="font-size:12px;color:var(--gray-400)">1080 × 1080 px</span>
+        <a :href="exportUrl" class="btn btn-sm btn-yellow" download>⬇ Export PNG</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function editDraft(draftId, initialPreview) {
+  return {
+    draftId,
+    previewUrl: initialPreview,
+    exportUrl: `/drafts/${draftId}/export`,
+    saving: false,
+    saveMsg: '',
+    editCount: {{ draft.edit_count }},
+    screenshotPreview: null,
+    iconPreviews: {},
+    fields: {
+      game_name: {{ draft.game_name | tojson }},
+      publisher: {{ (draft.publisher or '') | tojson }},
+      inspirations: [
+        {% for insp in draft.inspirations %}
+        { index: {{ loop.index0 }}, name: {{ insp.name | tojson }}, publisher: {{ (insp.publisher or '') | tojson }} }{% if not loop.last %},{% endif %}
+        {% endfor %}
+      ]
+    },
+
+    init() {},
+
+    async save() {
+      this.saving = true;
+      this.saveMsg = 'Saving…';
+      try {
+        const patch = {
+          game_name: this.fields.game_name,
+          publisher: this.fields.publisher,
+          inspirations: this.fields.inspirations.map(i => ({ index: i.index, name: i.name, publisher: i.publisher }))
+        };
+        const r = await fetch(`/drafts/${this.draftId}/fields`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(patch)
+        });
+        const d = await r.json();
+        if (r.ok) {
+          this.editCount = d.edit_count;
+          this.previewUrl = d.preview_url;
+          this.saveMsg = 'Saved ✓';
+          setTimeout(() => this.saveMsg = '', 2000);
+        } else {
+          this.saveMsg = 'Error: ' + (d.detail || 'save failed');
+        }
+      } catch(e) {
+        this.saveMsg = 'Error: ' + e.message;
+      } finally {
+        this.saving = false;
+      }
+    },
+
+    async replaceImage(evt, slot) {
+      const file = evt.target.files[0];
+      if (!file) return;
+      this.saving = true;
+      this.saveMsg = 'Uploading…';
+      try {
+        const fd = new FormData();
+        fd.append('file', file);
+        const r = await fetch(`/drafts/${this.draftId}/images/${slot}`, {
+          method: 'POST', body: fd
+        });
+        const d = await r.json();
+        if (r.ok) {
+          this.editCount = d.edit_count;
+          this.previewUrl = d.preview_url;
+          const preview = URL.createObjectURL(file);
+          if (slot === 'main_screenshot') this.screenshotPreview = preview;
+          else {
+            const idx = parseInt(slot.split('_')[1]);
+            this.iconPreviews[idx] = preview;
+          }
+          this.saveMsg = 'Image updated ✓';
+          setTimeout(() => this.saveMsg = '', 2000);
+        } else {
+          this.saveMsg = 'Upload error';
+        }
+      } finally {
+        this.saving = false;
+      }
+    },
+
+    async regenerate() {
+      this.saving = true;
+      this.saveMsg = 'Re-rendering…';
+      try {
+        const r = await fetch(`/drafts/${this.draftId}/regenerate`, { method: 'POST' });
+        const d = await r.json();
+        if (r.ok) {
+          this.editCount = d.edit_count;
+          this.previewUrl = d.preview_url;
+          this.saveMsg = 'Done ✓';
+          setTimeout(() => this.saveMsg = '', 2000);
+        }
+      } finally {
+        this.saving = false;
+      }
+    },
+
+    onPreviewLoaded() { this.saving = false; }
+  }
+}
+</script>
+{% endblock %}

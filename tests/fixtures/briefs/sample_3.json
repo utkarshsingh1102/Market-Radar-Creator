@@ -1,0 +1,23 @@
+{
+  "main_game": {
+    "name": "Airport Jam: Crowd Escape",
+    "publisher": "Devrim Eribol",
+    "screenshot": { "source": "upload", "upload_id": "placeholder.png" }
+  },
+  "inspirations": [
+    {
+      "name": "Pixel flow",
+      "publisher": "by loom games",
+      "icon": { "source": "auto", "query": "Pixel Flow loom games" }
+    },
+    {
+      "name": "Arrows by Lessmore",
+      "icon": { "source": "auto", "query": "Arrows Lessmore" }
+    },
+    {
+      "name": "Airport theme",
+      "icon": { "source": "auto", "query": "Airport theme game" }
+    }
+  ],
+  "meta": { "series_number": 34 }
+}

@@ -1,0 +1,133 @@
+"""
+Pydantic v2 input/output schemas for the Market Radar Forge.
+"""
+from __future__ import annotations
+
+from datetime import datetime
+from enum import Enum
+from typing import Annotated, Literal
+from uuid import UUID, uuid4
+
+from pydantic import BaseModel, Field, model_validator
+
+
+# ── Icon source ───────────────────────────────────────────────────────────────
+
+class IconSourceAuto(BaseModel):
+    source: Literal["auto"]
+    query: str = Field(..., min_length=1, description="iTunes search query")
+
+
+class IconSourceUpload(BaseModel):
+    source: Literal["upload"]
+    upload_id: str = Field(..., min_length=1)
+
+
+IconSource = Annotated[
+    IconSourceAuto | IconSourceUpload,
+    Field(discriminator="source"),
+]
+
+
+# ── Screenshot source ─────────────────────────────────────────────────────────
+
+class ScreenshotSourceUpload(BaseModel):
+    source: Literal["upload"]
+    upload_id: str = Field(..., min_length=1)
+
+
+class ScreenshotSourceUrl(BaseModel):
+    source: Literal["url"]
+    url: str = Field(..., min_length=1)
+
+
+ScreenshotSource = Annotated[
+    ScreenshotSourceUpload | ScreenshotSourceUrl,
+    Field(discriminator="source"),
+]
+
+
+# ── Inspiration ───────────────────────────────────────────────────────────────
+
+class InspirationIn(BaseModel):
+    name: str = Field(..., min_length=1)
+    publisher: str | None = None
+    icon: IconSource
+
+
+# ── Main game ─────────────────────────────────────────────────────────────────
+
+class MainGameIn(BaseModel):
+    name: str = Field(..., min_length=1)
+    publisher: str | None = None
+    screenshot: ScreenshotSource
+
+
+# ── Meta ─────────────────────────────────────────────────────────────────────
+
+class MetaIn(BaseModel):
+    series_number: int | None = None
+    output_filename: str | None = None
+
+
+# ── Top-level brief ───────────────────────────────────────────────────────────
+
+class BriefIn(BaseModel):
+    main_game: MainGameIn
+    inspirations: Annotated[
+        list[InspirationIn],
+        Field(min_length=2, max_length=4, description="2–4 inspiration games"),
+    ]
+    meta: MetaIn = Field(default_factory=MetaIn)
+
+
+# ── Draft (persisted state) ───────────────────────────────────────────────────
+
+class IconStatus(str, Enum):
+    ok = "ok"
+    needs_upload = "needs_upload"
+    fetching = "fetching"
+    error = "error"
+
+
+class InspirationDraft(BaseModel):
+    name: str
+    publisher: str | None = None
+    icon_status: IconStatus = IconStatus.needs_upload
+    icon_asset_key: str | None = None   # key in AssetStore
+
+
+class DraftState(BaseModel):
+    id: UUID = Field(default_factory=uuid4)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    edit_count: int = 0
+
+    game_name: str
+    publisher: str | None = None
+    screenshot_asset_key: str | None = None
+
+    inspirations: list[InspirationDraft]
+    meta: MetaIn = Field(default_factory=MetaIn)
+
+    preview_asset_key: str | None = None
+
+
+# ── Edit payloads ─────────────────────────────────────────────────────────────
+
+class FieldPatch(BaseModel):
+    game_name: str | None = None
+    publisher: str | None = None
+    inspirations: list[dict] | None = None   # partial inspiration updates keyed by index
+
+
+# ── API responses ─────────────────────────────────────────────────────────────
+
+class DraftResponse(BaseModel):
+    id: UUID
+    edit_count: int
+    game_name: str
+    publisher: str | None
+    inspirations: list[InspirationDraft]
+    preview_url: str
+    export_url: str

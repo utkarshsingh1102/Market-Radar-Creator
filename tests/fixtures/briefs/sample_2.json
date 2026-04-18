@@ -1,0 +1,19 @@
+{
+  "main_game": {
+    "name": "Lock Tangle",
+    "publisher": "Can Hulagu",
+    "screenshot": { "source": "upload", "upload_id": "placeholder.png" }
+  },
+  "inspirations": [
+    {
+      "name": "Color block jam",
+      "publisher": "by rollic",
+      "icon": { "source": "auto", "query": "Color block jam rollic" }
+    },
+    {
+      "name": "Keys",
+      "icon": { "source": "auto", "query": "Keys puzzle game" }
+    }
+  ],
+  "meta": { "series_number": 35 }
+}
