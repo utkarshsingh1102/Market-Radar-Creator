@@ -41,8 +41,16 @@ class ScreenshotSourceUrl(BaseModel):
     url: str = Field(..., min_length=1)
 
 
+class ScreenshotSourcePath(BaseModel):
+    source: Literal["path"]
+    path: str = Field(..., min_length=1, description=(
+        "Filename (or relative path) inside storage/uploads/. "
+        "Drop your image there and reference it here, e.g. 'my_game.png'."
+    ))
+
+
 ScreenshotSource = Annotated[
-    ScreenshotSourceUpload | ScreenshotSourceUrl,
+    ScreenshotSourceUpload | ScreenshotSourceUrl | ScreenshotSourcePath,
     Field(discriminator="source"),
 ]
 
@@ -60,7 +68,7 @@ class InspirationIn(BaseModel):
 class MainGameIn(BaseModel):
     name: str = Field(..., min_length=1)
     publisher: str | None = None
-    screenshot: ScreenshotSource
+    screenshot: ScreenshotSource | None = None   # optional — can be added later in editor
 
 
 # ── Meta ─────────────────────────────────────────────────────────────────────
@@ -131,3 +139,11 @@ class DraftResponse(BaseModel):
     inspirations: list[InspirationDraft]
     preview_url: str
     export_url: str
+
+
+# ── Multi-slide project brief (for JSON upload) ───────────────────────────────
+
+class ProjectBriefIn(BaseModel):
+    """Top-level JSON schema for creating a full project with multiple slides."""
+    project_name: str = Field(..., min_length=1)
+    slides: list[BriefIn] = Field(..., min_length=1, max_length=10)

@@ -1,135 +1,263 @@
 {% extends "base.html" %}
-{% block title %}Edit Draft — {{ draft.game_name }}{% endblock %}
+{% block title %}{{ draft.game_name }} — Market Radar Forge{% endblock %}
 
 {% block extra_head %}
 <style>
-.edit-layout { display: grid; grid-template-columns: 420px 1fr; gap: 32px; align-items: start; }
-.preview-wrap { position: sticky; top: 24px; }
-.preview-img { width: 100%; border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,.15); display: block; }
-.preview-loading { opacity: .5; transition: opacity .3s; }
-.insp-block { background: var(--gray-50); border: 1px solid var(--gray-200); border-radius: 10px; padding: 16px; margin-bottom: 10px; }
-.insp-num { font-size: 11px; font-weight: 700; color: var(--gray-400); text-transform: uppercase; margin-bottom: 10px; }
-.icon-thumb { width: 48px; height: 48px; border-radius: 10px; object-fit: cover; }
-.icon-upload-btn { display: inline-block; padding: 5px 12px; border: 1px solid var(--gray-200); border-radius: 6px;
-  font-size: 12px; cursor: pointer; background: white; }
-.status-ok::before { content: '✓ '; color: green; }
-.status-needs_upload::before { content: '⚠ '; color: orange; }
-.status-error::before { content: '✗ '; color: red; }
-.actions-bar { display: flex; gap: 12px; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--gray-200); }
-.saving-indicator { font-size: 12px; color: var(--gray-400); }
+/* ── Slide strip ──────────────────────────────────────────────────────────── */
+.slide-strip {
+  position: fixed;
+  bottom: 0; left: var(--sidebar-width); right: 0;
+  height: 110px;
+  background: #161616;
+  border-top: 1px solid #2a2a2a;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 20px;
+  overflow-x: auto;
+  z-index: 50;
+}
+.slide-strip::-webkit-scrollbar { height: 4px; }
+.slide-strip::-webkit-scrollbar-thumb { background: #444; border-radius: 2px; }
+
+.slide-thumb {
+  flex-shrink: 0;
+  width: 80px; height: 80px;
+  border-radius: 6px;
+  overflow: hidden;
+  cursor: pointer;
+  border: 2px solid transparent;
+  position: relative;
+  transition: border-color .15s;
+}
+.slide-thumb:hover { border-color: #555; }
+.slide-thumb.active { border-color: var(--yellow); }
+.slide-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.slide-thumb .slide-bg {
+  width: 100%; height: 100%;
+  background-image: url('/assets/background/market_radar_bg.png');
+  background-size: cover;
+}
+.slide-num {
+  position: absolute; bottom: 3px; left: 0; right: 0;
+  text-align: center; font-size: 9px; font-weight: 700;
+  color: rgba(255,255,255,0.8); text-shadow: 0 1px 2px rgba(0,0,0,.8);
+}
+
+.add-slide-btn {
+  flex-shrink: 0;
+  width: 80px; height: 80px;
+  border-radius: 6px;
+  border: 2px dashed #444;
+  background: transparent;
+  color: #666;
+  cursor: pointer;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 4px;
+  font-size: 11px; font-weight: 600;
+  transition: border-color .15s, color .15s;
+}
+.add-slide-btn:hover { border-color: #888; color: #ccc; }
+.add-slide-btn .plus { font-size: 22px; line-height: 1; }
+
+/* Shift canvas up to make room for strip */
+.canvas-area { padding-bottom: 110px; }
 </style>
 {% endblock %}
 
-{% block content %}
-<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px" x-data>
-  <div>
-    <h1 style="font-size:22px;font-weight:800;">{{ draft.game_name }}</h1>
-    <p style="font-size:13px;color:var(--gray-400);margin-top:2px">Draft {{ draft.id }} · edit #{{ draft.edit_count }}</p>
-  </div>
-  <a href="/drafts/{{ draft.id }}/export" class="btn btn-yellow" download>
-    ⬇ Export PNG
-  </a>
-</div>
+{% block topbar_center %}
+  <span class="sep">|</span>
+  <span class="draft-name" id="draft-game-name">{{ draft.game_name }}</span>
+  <span class="sep">|</span>
+  <span style="font-size:12px;color:#666" id="ec-badge">v{{ draft.edit_count }}</span>
+{% endblock %}
 
-<div class="edit-layout" x-data="editDraft('{{ draft.id }}', '{{ preview_url }}')" x-init="init()">
+{% block topbar_right %}
+  <span class="saving-indicator" id="save-msg"></span>
+  <a href="/" class="btn btn-secondary" style="font-size:12px;padding:6px 12px">+ New Session</a>
+  <a :href="exportUrl" class="btn btn-yellow" download x-data="{ exportUrl: '/drafts/{{ draft.id }}/export' }">⬇ Export PNG</a>
+{% endblock %}
 
-  <!-- ── Left: Edit Form ───────────────────────────────────────────────── -->
-  <div>
-    <div class="card" style="margin-bottom:20px">
-      <div style="font-size:14px;font-weight:700;margin-bottom:16px;padding-bottom:10px;border-bottom:2px solid #eee">Main Game</div>
+{% block body %}
+<div class="studio" x-data="editDraft('{{ draft.id }}', '{{ preview_url }}')" x-init="init()">
 
-      <div class="field">
-        <label>Game Name</label>
-        <input type="text" x-model="fields.game_name" @input.debounce.600ms="save()" />
-      </div>
-      <div class="field">
-        <label>Publisher</label>
-        <input type="text" x-model="fields.publisher" @input.debounce.600ms="save()" />
-      </div>
+  <!-- ══ Sidebar ══════════════════════════════════════════════════════════════ -->
+  <aside class="sidebar">
 
-      <div class="field">
-        <label>Screenshot</label>
-        <div style="display:flex;align-items:center;gap:10px">
-          <template x-if="screenshotPreview">
-            <img :src="screenshotPreview" style="width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid var(--gray-200)" />
-          </template>
-          <label class="icon-upload-btn">
-            Replace Screenshot
-            <input type="file" accept="image/*" style="display:none" @change="replaceImage($event,'main_screenshot')" />
-          </label>
-        </div>
-      </div>
+    <!-- JSON re-upload strip -->
+    <div class="json-upload-strip">
+      <span>🔄 Reload:</span>
+      <label>
+        Upload JSON
+        <input type="file" accept=".json,application/json" @change="loadJsonFile($event)" />
+      </label>
     </div>
 
-    <!-- Inspirations -->
-    <div class="card">
-      <div style="font-size:14px;font-weight:700;margin-bottom:16px;padding-bottom:10px;border-bottom:2px solid #eee">Inspirations</div>
+    <div class="sidebar-inner">
 
-      {% for insp in draft.inspirations %}
-      <div class="insp-block">
-        <div class="insp-num">Inspiration {{ loop.index }}</div>
-        <div class="row">
+      <!-- Main Game -->
+      <div class="sb-section">
+        <div class="sb-section-header" @click="sections.mainGame = !sections.mainGame">
+          <span class="sb-section-title">🎮 Main Game</span>
+          <span x-text="sections.mainGame ? '▲' : '▼'" style="font-size:10px;color:#aaa"></span>
+        </div>
+        <div x-show="sections.mainGame" class="sb-section-body">
+
           <div class="field">
-            <label>Name</label>
-            <input type="text" x-model="fields.inspirations[{{ loop.index0 }}].name" @input.debounce.600ms="save()" />
+            <label>Game Name</label>
+            <input type="text" x-model="fields.game_name" @input.debounce.600ms="save()" />
           </div>
           <div class="field">
             <label>Publisher</label>
-            <input type="text" x-model="fields.inspirations[{{ loop.index0 }}].publisher" @input.debounce.600ms="save()" />
+            <input type="text" x-model="fields.publisher" @input.debounce.600ms="save()" />
+          </div>
+          <div class="field">
+            <label>Screenshot</label>
+            <template x-if="screenshotPreview">
+              <img :src="screenshotPreview" class="ss-thumb" />
+            </template>
+            <label class="icon-upload-btn" style="display:block;text-align:center;padding:8px">
+              Replace Screenshot
+              <input type="file" accept="image/*" style="display:none" @change="replaceImage($event,'main_screenshot')" />
+            </label>
           </div>
         </div>
-        <div style="display:flex;align-items:center;gap:10px;margin-top:8px">
-          <template x-if="iconPreviews[{{ loop.index0 }}]">
-            <img :src="iconPreviews[{{ loop.index0 }}]" class="icon-thumb" />
-          </template>
-          <span class="status-{{ insp.icon_status.value }}">{{ insp.icon_status.value }}</span>
-          <label class="icon-upload-btn">
-            Replace Icon
-            <input type="file" accept="image/*" style="display:none"
-              @change="replaceImage($event,'inspiration_{{ loop.index0 }}_icon')" />
-          </label>
+      </div>
+
+      <!-- Inspirations -->
+      <div class="sb-section">
+        <div class="sb-section-header" @click="sections.inspirations = !sections.inspirations">
+          <span class="sb-section-title">✨ Inspirations</span>
+          <span x-text="sections.inspirations ? '▲' : '▼'" style="font-size:10px;color:#aaa"></span>
+        </div>
+        <div x-show="sections.inspirations" class="sb-section-body">
+
+          {% for insp in draft.inspirations %}
+          <div class="insp-block">
+            <div class="insp-num">Inspiration {{ loop.index }}</div>
+            <div class="row">
+              <div class="field">
+                <label>Name</label>
+                <input type="text" x-model="fields.inspirations[{{ loop.index0 }}].name" @input.debounce.600ms="save()" />
+              </div>
+              <div class="field">
+                <label>Publisher</label>
+                <input type="text" x-model="fields.inspirations[{{ loop.index0 }}].publisher" @input.debounce.600ms="save()" />
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;margin-top:4px">
+              <template x-if="iconPreviews[{{ loop.index0 }}]">
+                <img :src="iconPreviews[{{ loop.index0 }}]" class="icon-thumb" />
+              </template>
+              <span style="font-size:11px" class="status-{{ insp.icon_status.value }}">{{ insp.icon_status.value }}</span>
+              <label class="icon-upload-btn">
+                Replace Icon
+                <input type="file" accept="image/*" style="display:none"
+                  @change="replaceImage($event,'inspiration_{{ loop.index0 }}_icon')" />
+              </label>
+            </div>
+          </div>
+          {% endfor %}
+
         </div>
       </div>
-      {% endfor %}
-    </div>
 
-    <div class="actions-bar">
-      <button class="btn btn-secondary btn-sm" @click="regenerate()" :disabled="saving">
+    </div><!-- /sidebar-inner -->
+
+    <!-- Sidebar footer -->
+    <div class="sidebar-footer">
+      <button class="btn btn-secondary btn-full" @click="regenerate()" :disabled="saving">
         <span x-show="saving" class="spinner"></span>
         🔄 Re-render
       </button>
-      <span class="saving-indicator" x-text="saveMsg"></span>
+    </div>
+
+  </aside>
+
+  <!-- ══ Canvas area ══════════════════════════════════════════════════════════ -->
+  <div class="canvas-area">
+    <div class="canvas-wrap">
+
+      <!-- Design preview -->
+      <img x-show="previewUrl"
+           :src="previewUrl"
+           class="canvas-img"
+           :class="saving ? 'preview-loading' : ''"
+           @load="onPreviewLoaded()"
+           alt="Design preview" />
+
+      <!-- Background shown before first render -->
+      <img x-show="!previewUrl"
+           src="/assets/background/market_radar_bg.png"
+           class="canvas-img"
+           alt="Background" />
+
+      <!-- Loading overlay -->
+      <div class="canvas-loading-overlay" x-show="saving">
+        <div style="text-align:center">
+          <div class="spinner-white" style="width:32px;height:32px;border-width:3px;margin:0 auto 10px"></div>
+          <div style="color:#fff;font-size:13px;font-weight:600" x-text="saveMsg || 'Rendering…'"></div>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="canvas-info">
+      <span style="color:#555">1080 × 1080 px</span>
+      <span style="color:#444">·</span>
+      <span style="color:#555" x-text="'v' + editCount"></span>
+      <a :href="'/drafts/' + draftId + '/export'" class="btn btn-yellow btn-sm" download style="margin-left:8px">⬇ Export</a>
     </div>
   </div>
 
-  <!-- ── Right: Live Preview ───────────────────────────────────────────── -->
-  <div class="preview-wrap">
-    <div class="card" style="padding:16px">
-      <div style="font-size:12px;font-weight:600;color:var(--gray-400);margin-bottom:10px;text-transform:uppercase;">
-        Preview
-        <span style="float:right" x-text="'v' + editCount"></span>
-      </div>
-      <img :src="previewUrl" class="preview-img" :class="saving?'preview-loading':''"
-           @load="onPreviewLoaded()" :key="previewUrl" />
-      <div style="margin-top:12px;display:flex;justify-content:space-between;align-items:center">
-        <span style="font-size:12px;color:var(--gray-400)">1080 × 1080 px</span>
-        <a :href="exportUrl" class="btn btn-sm btn-yellow" download>⬇ Export PNG</a>
-      </div>
-    </div>
-  </div>
 </div>
+
+<!-- ══ Slide strip ══════════════════════════════════════════════════════════════ -->
+<div class="slide-strip" x-data="slideStrip('{{ draft.id }}')" x-init="init()">
+
+  <template x-for="(slide, i) in slides" :key="slide.id">
+    <div class="slide-thumb" :class="slide.id === activeDraftId ? 'active' : ''"
+         @click="switchSlide(slide.id)"
+         :title="slide.gameName || ('Slide ' + (i+1))">
+      <template x-if="slide.previewUrl">
+        <img :src="slide.previewUrl" :alt="'Slide ' + (i+1)" />
+      </template>
+      <template x-if="!slide.previewUrl">
+        <div class="slide-bg"></div>
+      </template>
+      <div class="slide-num" x-text="i + 1"></div>
+    </div>
+  </template>
+
+  <!-- Add Slide button -->
+  <button class="add-slide-btn" @click="addSlide()" :disabled="addingSlide" title="Add a new slide">
+    <template x-if="!addingSlide">
+      <span class="plus">+</span>
+    </template>
+    <template x-if="addingSlide">
+      <span class="spinner" style="border-top-color:#ccc"></span>
+    </template>
+    <span x-text="addingSlide ? '' : 'Add Slide'"></span>
+  </button>
+
+</div>
+
+<style>
+.preview-loading { opacity: .4; transition: opacity .3s; }
+</style>
 
 <script>
 function editDraft(draftId, initialPreview) {
   return {
     draftId,
     previewUrl: initialPreview,
-    exportUrl: `/drafts/${draftId}/export`,
     saving: false,
     saveMsg: '',
     editCount: {{ draft.edit_count }},
     screenshotPreview: null,
     iconPreviews: {},
+    sections: { mainGame: true, inspirations: true },
     fields: {
       game_name: {{ draft.game_name | tojson }},
       publisher: {{ (draft.publisher or '') | tojson }},
@@ -140,87 +268,173 @@ function editDraft(draftId, initialPreview) {
       ]
     },
 
-    init() {},
+    init() {
+      // Update the slide strip preview for this draft after load
+      this.$nextTick(() => {
+        if (this.previewUrl) this._syncSlidePreview(this.previewUrl);
+      });
+    },
+
+    async loadJsonFile(evt) {
+      const file = evt.target.files[0];
+      if (!file) return;
+      try {
+        const brief = JSON.parse(await file.text());
+        if (brief.main_game) {
+          this.fields.game_name = brief.main_game.name || this.fields.game_name;
+          this.fields.publisher = brief.main_game.publisher || this.fields.publisher;
+        }
+        if (Array.isArray(brief.inspirations)) {
+          brief.inspirations.forEach((insp, i) => {
+            if (this.fields.inspirations[i]) {
+              this.fields.inspirations[i].name = insp.name || '';
+              this.fields.inspirations[i].publisher = insp.publisher || '';
+            }
+          });
+        }
+        await this.save();
+      } catch(e) { this._setMsg('Error: ' + e.message); }
+    },
 
     async save() {
-      this.saving = true;
-      this.saveMsg = 'Saving…';
+      this.saving = true; this._setMsg('Saving…');
       try {
-        const patch = {
-          game_name: this.fields.game_name,
-          publisher: this.fields.publisher,
-          inspirations: this.fields.inspirations.map(i => ({ index: i.index, name: i.name, publisher: i.publisher }))
-        };
         const r = await fetch(`/drafts/${this.draftId}/fields`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(patch)
+          body: JSON.stringify({
+            game_name: this.fields.game_name,
+            publisher: this.fields.publisher,
+            inspirations: this.fields.inspirations.map(i => ({ index: i.index, name: i.name, publisher: i.publisher }))
+          })
         });
         const d = await r.json();
         if (r.ok) {
           this.editCount = d.edit_count;
           this.previewUrl = d.preview_url;
-          this.saveMsg = 'Saved ✓';
-          setTimeout(() => this.saveMsg = '', 2000);
+          this._syncSlidePreview(d.preview_url);
+          this._setMsg('Saved ✓', 2000);
+          // Update topbar name
+          document.getElementById('draft-game-name').textContent = this.fields.game_name;
+          document.getElementById('ec-badge').textContent = 'v' + d.edit_count;
         } else {
-          this.saveMsg = 'Error: ' + (d.detail || 'save failed');
+          this._setMsg('Error: ' + (d.detail || 'save failed'));
         }
-      } catch(e) {
-        this.saveMsg = 'Error: ' + e.message;
-      } finally {
-        this.saving = false;
-      }
+      } finally { this.saving = false; }
     },
 
     async replaceImage(evt, slot) {
-      const file = evt.target.files[0];
-      if (!file) return;
-      this.saving = true;
-      this.saveMsg = 'Uploading…';
+      const file = evt.target.files[0]; if (!file) return;
+      this.saving = true; this._setMsg('Uploading…');
       try {
-        const fd = new FormData();
-        fd.append('file', file);
-        const r = await fetch(`/drafts/${this.draftId}/images/${slot}`, {
-          method: 'POST', body: fd
-        });
+        const fd = new FormData(); fd.append('file', file);
+        const r = await fetch(`/drafts/${this.draftId}/images/${slot}`, { method: 'POST', body: fd });
         const d = await r.json();
         if (r.ok) {
-          this.editCount = d.edit_count;
-          this.previewUrl = d.preview_url;
+          this.editCount = d.edit_count; this.previewUrl = d.preview_url;
+          this._syncSlidePreview(d.preview_url);
           const preview = URL.createObjectURL(file);
           if (slot === 'main_screenshot') this.screenshotPreview = preview;
-          else {
-            const idx = parseInt(slot.split('_')[1]);
-            this.iconPreviews[idx] = preview;
-          }
-          this.saveMsg = 'Image updated ✓';
-          setTimeout(() => this.saveMsg = '', 2000);
-        } else {
-          this.saveMsg = 'Upload error';
+          else { const idx = parseInt(slot.split('_')[1]); this.iconPreviews[idx] = preview; }
+          this._setMsg('Updated ✓', 2000);
         }
-      } finally {
-        this.saving = false;
-      }
+      } finally { this.saving = false; }
     },
 
     async regenerate() {
-      this.saving = true;
-      this.saveMsg = 'Re-rendering…';
+      this.saving = true; this._setMsg('Re-rendering…');
       try {
         const r = await fetch(`/drafts/${this.draftId}/regenerate`, { method: 'POST' });
         const d = await r.json();
         if (r.ok) {
-          this.editCount = d.edit_count;
-          this.previewUrl = d.preview_url;
-          this.saveMsg = 'Done ✓';
-          setTimeout(() => this.saveMsg = '', 2000);
+          this.editCount = d.edit_count; this.previewUrl = d.preview_url;
+          this._syncSlidePreview(d.preview_url);
+          this._setMsg('Done ✓', 2000);
         }
+      } finally { this.saving = false; }
+    },
+
+    onPreviewLoaded() { this.saving = false; },
+
+    _syncSlidePreview(url) {
+      // Let the slide strip know the updated preview
+      window.dispatchEvent(new CustomEvent('slidePreviewUpdated', {
+        detail: { draftId: this.draftId, previewUrl: url }
+      }));
+    },
+
+    _setMsg(msg, clearAfter) {
+      this.saveMsg = msg;
+      const el = document.getElementById('save-msg');
+      if (el) el.textContent = msg;
+      if (clearAfter) setTimeout(() => { this.saveMsg = ''; if (el) el.textContent = ''; }, clearAfter);
+    }
+  }
+}
+
+function slideStrip(currentDraftId) {
+  return {
+    activeDraftId: currentDraftId,
+    slides: [],
+    addingSlide: false,
+
+    init() {
+      // Load slides from localStorage
+      try {
+        const stored = JSON.parse(localStorage.getItem('mrfSlides') || '[]');
+        this.slides = stored.length ? stored : [{ id: currentDraftId, gameName: '', previewUrl: null }];
+      } catch {
+        this.slides = [{ id: currentDraftId, gameName: '', previewUrl: null }];
+      }
+      // Ensure current draft is in the list
+      if (!this.slides.find(s => s.id === currentDraftId)) {
+        this.slides.unshift({ id: currentDraftId, gameName: '', previewUrl: null });
+        this._save();
+      }
+
+      // Listen for preview updates from the editor
+      window.addEventListener('slidePreviewUpdated', (e) => {
+        const slide = this.slides.find(s => s.id === e.detail.draftId);
+        if (slide) slide.previewUrl = e.detail.previewUrl + '&strip=1';
+      });
+    },
+
+    switchSlide(draftId) {
+      if (draftId === this.activeDraftId) return;
+      this._save();
+      window.location.href = `/drafts/${draftId}/edit`;
+    },
+
+    async addSlide() {
+      this.addingSlide = true;
+      try {
+        // Re-use the last brief stored in localStorage with a blank game name
+        let brief = null;
+        try { brief = JSON.parse(localStorage.getItem('mrfBrief') || 'null'); } catch {}
+        if (!brief) {
+          alert('No brief found in session. Please start a new session from the home page.');
+          return;
+        }
+        // Create a fresh duplicate draft
+        const r = await fetch('/drafts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(brief)
+        });
+        const d = await r.json();
+        if (!r.ok) { alert('Error creating slide: ' + (d.detail || 'unknown')); return; }
+        const newSlide = { id: d.id, gameName: d.game_name || 'New Slide', previewUrl: null };
+        this.slides.push(newSlide);
+        this._save();
+        window.location.href = `/drafts/${d.id}/edit`;
       } finally {
-        this.saving = false;
+        this.addingSlide = false;
       }
     },
 
-    onPreviewLoaded() { this.saving = false; }
+    _save() {
+      localStorage.setItem('mrfSlides', JSON.stringify(this.slides));
+    }
   }
 }
 </script>

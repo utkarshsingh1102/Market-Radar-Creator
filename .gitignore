@@ -13,8 +13,9 @@ storage/
 
 # Assets with personal data — add your own files, don't commit them
 assets/profile/
-assets/fonts/
 assets/frames/
+# Font files — Gilroy is committed; add other private fonts here if needed
+# assets/fonts/*.ttf  — Gilroy-Bold.ttf is committed
 
 # IDE
 .idea/

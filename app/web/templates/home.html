@@ -1,0 +1,214 @@
+{% extends "base.html" %}
+{% block title %}Market Radar Forge — Projects{% endblock %}
+
+{% block extra_head %}
+<style>
+body { overflow-y: auto; background: #111; }
+.home-wrap { max-width: 1200px; margin: 0 auto; padding: 40px 32px 80px; }
+
+/* ── Hero ──────────────────────────────────────────────────────────────── */
+.hero { display: flex; align-items: center; justify-content: space-between; margin-bottom: 40px; }
+.hero h1 { font-size: 26px; font-weight: 800; color: #fff; }
+.hero p { font-size: 14px; color: #666; margin-top: 4px; }
+
+/* ── Section header ─────────────────────────────────────────────────────── */
+.sec-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+.sec-title { font-size: 13px; font-weight: 700; color: #555; text-transform: uppercase; letter-spacing: .6px; }
+
+/* ── Project grid ───────────────────────────────────────────────────────── */
+.project-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 16px;
+}
+
+.project-card {
+  background: #1c1c1c;
+  border: 1px solid #2a2a2a;
+  border-radius: 12px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color .15s, transform .1s;
+  position: relative;
+}
+.project-card:hover { border-color: #444; transform: translateY(-2px); }
+
+.project-thumb {
+  width: 100%; height: 160px; object-fit: cover; display: block;
+  background: #222;
+}
+.project-thumb-placeholder {
+  width: 100%; height: 160px;
+  background: #222;
+  background-image: url('/assets/background/market_radar_bg.png');
+  background-size: cover;
+  background-position: top center;
+  opacity: .5;
+}
+.project-body { padding: 14px 16px; }
+.project-name { font-size: 14px; font-weight: 700; color: #eee; margin-bottom: 6px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.project-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.badge {
+  display: inline-block; padding: 2px 8px; border-radius: 99px;
+  font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px;
+}
+.badge-json { background: #1a3a1a; color: #4caf50; }
+.badge-ui { background: #1a2a3a; color: #4da6ff; }
+.project-date { font-size: 11px; color: #555; }
+.slide-count { font-size: 11px; color: #666; }
+
+.project-actions {
+  display: flex; gap: 6px; position: absolute; top: 8px; right: 8px; opacity: 0;
+  transition: opacity .15s;
+}
+.project-card:hover .project-actions { opacity: 1; }
+.del-btn {
+  width: 28px; height: 28px; border-radius: 6px; border: none;
+  background: rgba(220,50,50,.85); color: #fff; font-size: 13px;
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+}
+.del-btn:hover { background: #e53e3e; }
+
+/* ── Empty state ─────────────────────────────────────────────────────────── */
+.empty-state {
+  grid-column: 1/-1;
+  text-align: center; padding: 60px 20px; color: #444;
+}
+.empty-state .icon { font-size: 48px; margin-bottom: 12px; }
+.empty-state p { font-size: 14px; }
+
+/* ── New project card ────────────────────────────────────────────────────── */
+.new-project-card {
+  background: transparent;
+  border: 2px dashed #2d2d2d;
+  border-radius: 12px;
+  height: 220px;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 8px;
+  cursor: pointer; color: #444;
+  transition: border-color .15s, color .15s;
+  text-decoration: none;
+}
+.new-project-card:hover { border-color: var(--yellow); color: var(--yellow); }
+.new-project-card .plus { font-size: 32px; }
+.new-project-card span { font-size: 13px; font-weight: 600; }
+</style>
+{% endblock %}
+
+{% block topbar_center %}
+  <span class="sep">|</span>
+  <span style="font-size:13px;color:#888">Projects</span>
+{% endblock %}
+
+{% block body %}
+<div class="home-wrap" x-data="homePage()" x-init="init()">
+
+  <!-- Hero -->
+  <div class="hero">
+    <div>
+      <h1>Your Projects</h1>
+      <p>All your Market Radar designs in one place.</p>
+    </div>
+    <a href="/projects/new" class="btn btn-yellow" style="font-size:14px;padding:10px 24px">
+      + New Project
+    </a>
+  </div>
+
+  <!-- Projects grid -->
+  <div class="sec-header">
+    <span class="sec-title" x-text="'All Projects (' + projects.length + ')'"></span>
+  </div>
+
+  <div class="project-grid" x-show="!loading">
+
+    <!-- New project shortcut card -->
+    <a href="/projects/new" class="new-project-card">
+      <span class="plus">+</span>
+      <span>New Project</span>
+    </a>
+
+    <template x-for="proj in projects" :key="proj.id">
+      <div class="project-card" @click.self="openProject(proj.id)">
+
+        <!-- Delete button -->
+        <div class="project-actions" @click.stop>
+          <button class="del-btn" @click="deleteProject(proj.id, $event)" title="Delete project">✕</button>
+        </div>
+
+        <!-- Thumbnail -->
+        <div @click="openProject(proj.id)">
+          <template x-if="proj.thumbnail_url">
+            <img :src="proj.thumbnail_url" class="project-thumb" :alt="proj.name" />
+          </template>
+          <template x-if="!proj.thumbnail_url">
+            <div class="project-thumb-placeholder"></div>
+          </template>
+
+          <div class="project-body">
+            <div class="project-name" x-text="proj.name"></div>
+            <div class="project-meta">
+              <span class="badge" :class="proj.source === 'json' ? 'badge-json' : 'badge-ui'"
+                    x-text="proj.source === 'json' ? 'JSON' : 'UI'"></span>
+              <span class="slide-count" x-text="proj.slide_count + (proj.slide_count === 1 ? ' slide' : ' slides')"></span>
+              <span class="project-date" x-text="fmtDate(proj.created_at)"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </template>
+
+    <!-- Empty state (no projects yet) -->
+    <div class="empty-state" x-show="projects.length === 0">
+      <div class="icon">🎨</div>
+      <p>No projects yet — click <strong>New Project</strong> to get started.</p>
+    </div>
+
+  </div>
+
+  <!-- Loading -->
+  <div x-show="loading" style="text-align:center;padding:60px;color:#555">
+    <div class="spinner" style="margin:0 auto 12px;width:24px;height:24px;border-top-color:#888"></div>
+    Loading projects…
+  </div>
+
+</div>
+
+<script>
+function homePage() {
+  return {
+    projects: [],
+    loading: true,
+
+    async init() {
+      await this.loadProjects();
+    },
+
+    async loadProjects() {
+      this.loading = true;
+      try {
+        const r = await fetch('/api/projects');
+        this.projects = await r.json();
+      } catch(e) { console.error(e); }
+      finally { this.loading = false; }
+    },
+
+    openProject(id) {
+      window.location.href = `/projects/${id}`;
+    },
+
+    async deleteProject(id, evt) {
+      evt.stopPropagation();
+      if (!confirm('Delete this project? This cannot be undone.')) return;
+      await fetch(`/api/projects/${id}`, { method: 'DELETE' });
+      this.projects = this.projects.filter(p => p.id !== id);
+    },
+
+    fmtDate(iso) {
+      const d = new Date(iso);
+      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+  }
+}
+</script>
+{% endblock %}

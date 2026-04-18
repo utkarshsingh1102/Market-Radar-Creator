@@ -8,7 +8,7 @@ import json
 import logging
 import uuid
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path  # noqa: F401 — used in _resolve_screenshot path source
 
 from app.config import settings, tokens
 from app.renderer.engine import render
@@ -92,8 +92,28 @@ class Orchestrator:
 
     # ── Internal helpers ──────────────────────────────────────────────────────
 
+    async def create_empty_draft(self, game_name: str = "New Slide") -> DraftState:
+        """Create a blank draft (no screenshot, placeholder inspirations)."""
+        draft_id = uuid.uuid4()
+        insps = [
+            InspirationDraft(name="Inspiration 1", icon_status=IconStatus.needs_upload),
+            InspirationDraft(name="Inspiration 2", icon_status=IconStatus.needs_upload),
+        ]
+        draft = DraftState(
+            id=draft_id,
+            game_name=game_name,
+            publisher=None,
+            screenshot_asset_key=None,
+            inspirations=insps,
+        )
+        await self._render_and_save(draft)
+        await self._persist_draft(draft)
+        return draft
+
     async def _resolve_screenshot(self, brief: BriefIn, draft_id: uuid.UUID) -> str | None:
         src = brief.main_game.screenshot
+        if src is None:
+            return None
         if src.source == "upload":
             up_key = f"uploads/{src.upload_id}"
             if await self._store.exists(up_key):
@@ -112,6 +132,17 @@ class Orchestrator:
                     return dest_key
             except Exception as e:
                 logger.warning("Screenshot URL fetch failed: %s", e)
+        elif src.source == "path":
+            # Resolve relative to storage/uploads/ — safe, no path traversal
+            safe_name = Path(src.path).name  # strip any directory components
+            up_key = f"uploads/{safe_name}"
+            if await self._store.exists(up_key):
+                dest_key = f"drafts/{draft_id}/screenshot.png"
+                data = await self._store.get(up_key)
+                await self._store.put(dest_key, data)
+                return dest_key
+            else:
+                logger.warning("Screenshot path not found in uploads: %s", src.path)
         return None
 
     async def _resolve_icon(self, icon_src, draft_id: uuid.UUID, idx: int):

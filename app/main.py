@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
-from app.api import drafts, edits, exports, uploads
+from app.api import drafts, edits, exports, uploads, projects as projects_api, validate as validate_api
 from app.orchestrator import Orchestrator
 from app.storage.local import LocalAssetStore
 from app.web import routes
@@ -44,9 +44,15 @@ static_dir = Path(__file__).parent / "web" / "static"
 static_dir.mkdir(parents=True, exist_ok=True)
 app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
+assets_dir = Path(__file__).resolve().parent.parent / "assets"
+assets_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
+
 # ── Routers ───────────────────────────────────────────────────────────────────
 app.include_router(drafts.router)
 app.include_router(edits.router)
 app.include_router(exports.router)
 app.include_router(uploads.router)
+app.include_router(projects_api.router)
+app.include_router(validate_api.router)
 app.include_router(routes.router)

@@ -1,0 +1,351 @@
+{% extends "base.html" %}
+{% block title %}New Project — Market Radar Forge{% endblock %}
+
+{% block extra_head %}
+<style>
+body { overflow-y: auto; background: #111; }
+.np-wrap {
+  max-width: 680px; margin: 0 auto;
+  padding: 60px 24px 80px;
+  min-height: calc(100vh - 52px);
+  display: flex; flex-direction: column; justify-content: center;
+}
+h1 { font-size: 24px; font-weight: 800; color: #fff; margin-bottom: 6px; }
+.subtitle { font-size: 14px; color: #666; margin-bottom: 32px; }
+
+/* ── Project name input ────────────────────────────────────────────────── */
+.name-field { margin-bottom: 32px; }
+.name-field label { display: block; font-size: 11px; font-weight: 700; color: #666;
+  text-transform: uppercase; letter-spacing: .5px; margin-bottom: 8px; }
+.name-field input {
+  width: 100%; padding: 12px 16px; background: #1c1c1c;
+  border: 1px solid #333; border-radius: 8px; color: #eee;
+  font-size: 15px; outline: none; transition: border-color .15s;
+}
+.name-field input:focus { border-color: var(--yellow); }
+.name-field input::placeholder { color: #444; }
+
+/* ── Option cards ────────────────────────────────────────────────────────── */
+.options { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.option-card {
+  background: #1c1c1c; border: 2px solid #2a2a2a;
+  border-radius: 14px; padding: 28px 24px;
+  cursor: pointer; text-align: left;
+  transition: border-color .2s, background .2s;
+  position: relative; overflow: hidden;
+}
+.option-card:hover, .option-card.selected {
+  border-color: var(--yellow);
+  background: #201e10;
+}
+.option-icon { font-size: 36px; margin-bottom: 14px; display: block; }
+.option-title { font-size: 16px; font-weight: 800; color: #eee; margin-bottom: 6px; }
+.option-desc { font-size: 13px; color: #666; line-height: 1.5; }
+.option-badge {
+  position: absolute; top: 12px; right: 12px;
+  background: var(--yellow); color: #000;
+  font-size: 9px; font-weight: 800; text-transform: uppercase;
+  padding: 2px 7px; border-radius: 4px; letter-spacing: .5px;
+}
+.sample-link {
+  display: inline-flex; align-items: center; gap: 5px;
+  margin-top: 12px; font-size: 12px; color: #888;
+  text-decoration: none; transition: color .15s;
+}
+.sample-link:hover { color: var(--yellow); }
+
+/* ── JSON upload zone ────────────────────────────────────────────────────── */
+.json-zone {
+  margin-top: 28px; display: none;
+}
+.json-zone.visible { display: block; }
+.json-drop {
+  border: 2px dashed #333; border-radius: 10px;
+  padding: 28px; text-align: center; cursor: pointer;
+  color: #555; font-size: 14px; transition: border-color .15s, background .15s;
+}
+.json-drop:hover, .json-drop.drag-over { border-color: var(--yellow); background: #1e1c10; color: #ccc; }
+.json-drop input { display: none; }
+.json-loaded { color: #4caf50; font-size: 13px; font-weight: 600; margin-top: 8px; text-align: center; }
+
+/* ── Validation panel ────────────────────────────────────────────────────── */
+.validation-panel {
+  margin-top: 24px; border-radius: 10px; overflow: hidden;
+  border: 1px solid #2a2a2a;
+}
+.val-header {
+  padding: 12px 16px; display: flex; align-items: center; gap: 10px;
+  font-size: 13px; font-weight: 700;
+}
+.val-header.all-ok { background: #0d2b0d; color: #4caf50; border-bottom: 1px solid #1a4a1a; }
+.val-header.has-errors { background: #2b0d0d; color: #ef5350; border-bottom: 1px solid #4a1a1a; }
+.val-header.has-warnings { background: #2b1e0d; color: #ffb74d; border-bottom: 1px solid #4a350d; }
+
+.val-body { background: #181818; padding: 12px 0; }
+.val-issue {
+  display: flex; gap: 12px; padding: 10px 16px;
+  border-bottom: 1px solid #222;
+}
+.val-issue:last-child { border-bottom: none; }
+.val-icon { flex-shrink: 0; font-size: 14px; margin-top: 1px; }
+.val-content { flex: 1; min-width: 0; }
+.val-msg { font-size: 13px; color: #ddd; line-height: 1.45; }
+.val-field { font-size: 10px; color: #555; font-family: monospace; margin-top: 2px; }
+.val-suggestion { font-size: 12px; color: #888; margin-top: 6px; line-height: 1.5;
+  white-space: pre-wrap; background: #111; border-left: 3px solid #333;
+  padding: 6px 10px; border-radius: 0 4px 4px 0; }
+
+/* ── Actions ─────────────────────────────────────────────────────────────── */
+.actions { margin-top: 24px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.back-link { font-size: 13px; color: #555; text-decoration: none; }
+.back-link:hover { color: #aaa; }
+.error { color: #e05050; font-size: 13px; margin-top: 8px; }
+</style>
+{% endblock %}
+
+{% block topbar_center %}
+  <span class="sep">|</span>
+  <a href="/" style="font-size:13px;color:#888;text-decoration:none">← Projects</a>
+{% endblock %}
+
+{% block body %}
+<div class="np-wrap" x-data="newProject()" x-init="init()">
+
+  <h1>Start a New Project</h1>
+  <p class="subtitle">Give your project a name and choose how you'd like to create your slides.</p>
+
+  <!-- Project name -->
+  <div class="name-field">
+    <label>Project Name *</label>
+    <input type="text" x-model="projectName" placeholder="e.g. Market Radar #34" @keydown.enter="proceed()" />
+  </div>
+
+  <!-- Option cards -->
+  <div class="options">
+
+    <!-- JSON option -->
+    <div class="option-card" :class="method==='json' ? 'selected' : ''" @click="method='json'">
+      <span class="option-badge">Recommended</span>
+      <span class="option-icon">📄</span>
+      <div class="option-title">Upload JSON</div>
+      <div class="option-desc">Define all slides at once from a structured JSON file. Great for batch creation.</div>
+      <a href="/sample-brief.json" class="sample-link" download @click.stop>
+        ⬇ Download sample JSON
+      </a>
+    </div>
+
+    <!-- UI option -->
+    <div class="option-card" :class="method==='ui' ? 'selected' : ''" @click="method='ui'">
+      <span class="option-icon">✏️</span>
+      <div class="option-title">Build with UI</div>
+      <div class="option-desc">Create slides one by one using the visual form editor. No JSON needed.</div>
+    </div>
+
+  </div>
+
+  <!-- JSON upload zone (shown when JSON method selected) -->
+  <div class="json-zone" :class="method==='json' ? 'visible' : ''">
+    <div class="json-drop"
+         :class="dragging ? 'drag-over' : ''"
+         @click="$refs.jsonFile.click()"
+         @dragover.prevent="dragging=true"
+         @dragleave="dragging=false"
+         @drop.prevent="dragging=false; handleDrop($event)">
+      <input type="file" accept=".json,application/json" x-ref="jsonFile" @change="handleFile($event)" />
+      <div x-show="!jsonFileName">📂 Click or drag your JSON brief here</div>
+      <div x-show="jsonFileName" class="json-loaded">✓ <span x-text="jsonFileName"></span></div>
+    </div>
+    <p style="font-size:11px;color:#444;margin-top:8px;text-align:center">
+      Don't have a JSON? <a href="/sample-brief.json" download style="color:#666;text-decoration:underline">Download the sample</a> and edit it.
+    </p>
+  </div>
+
+  <!-- Error -->
+  <p class="error" x-text="error" x-show="error"></p>
+
+  <!-- ── Validation results ─────────────────────────────────────────────── -->
+  <div class="validation-panel" x-show="validation !== null">
+    <template x-if="validation">
+
+      <!-- Header -->
+      <div class="val-header"
+           :class="validation.error_count > 0 ? 'has-errors' : (validation.warning_count > 0 ? 'has-warnings' : 'all-ok')">
+        <span x-text="validation.error_count > 0 ? '✗' : (validation.warning_count > 0 ? '⚠' : '✓')"></span>
+        <span x-text="
+          validation.error_count > 0
+            ? validation.error_count + ' error' + (validation.error_count > 1 ? 's' : '') + ' found — fix before creating'
+            : validation.warning_count > 0
+              ? 'Valid with ' + validation.warning_count + ' warning' + (validation.warning_count > 1 ? 's' : '') + ' — you can still proceed'
+              : 'JSON is valid ✓ — ready to create'
+        "></span>
+      </div>
+
+      <!-- Issue list -->
+      <div class="val-body" x-show="validation.issues.length > 0">
+        <template x-for="(issue, i) in validation.issues" :key="i">
+          <div class="val-issue">
+            <div class="val-icon"
+                 x-text="issue.level === 'error' ? '✗' : issue.level === 'warning' ? '⚠' : 'ℹ'"></div>
+            <div class="val-content">
+              <div class="val-msg" x-text="issue.message"></div>
+              <div class="val-field" x-show="issue.field" x-text="(issue.slide ? 'Slide ' + issue.slide + ' · ' : '') + issue.field"></div>
+              <div class="val-suggestion" x-show="issue.suggestion" x-text="'💡 ' + issue.suggestion"></div>
+            </div>
+          </div>
+        </template>
+      </div>
+
+    </template>
+  </div>
+
+  <!-- Actions -->
+  <div class="actions">
+    <a href="/" class="back-link">← Back</a>
+
+    <!-- Validate button (shown before validation or when JSON changes) -->
+    <button class="btn btn-secondary" style="font-size:14px;padding:11px 24px"
+            @click="runValidation()"
+            :disabled="validating || (method==='json' && !jsonBrief)"
+            x-show="method === 'json'">
+      <span x-show="validating" class="spinner"></span>
+      <span x-text="validating ? 'Checking…' : '🔍 Check JSON'"></span>
+    </button>
+
+    <!-- Create button -->
+    <button class="btn btn-yellow" style="font-size:14px;padding:11px 28px"
+            @click="proceed()"
+            :disabled="loading || !projectName.trim() || (method==='json' && validation && validation.error_count > 0)">
+      <span x-show="loading" class="spinner"></span>
+      <span x-text="loading ? 'Creating…' : 'Create Project →'"></span>
+    </button>
+  </div>
+
+</div>
+
+<script>
+function newProject() {
+  return {
+    projectName: '',
+    method: 'json',
+    jsonFileName: null,
+    jsonBrief: null,
+    dragging: false,
+    loading: false,
+    validating: false,
+    validation: null,   // result from /api/validate-brief
+    error: '',
+
+    init() {},
+
+    handleFile(evt) {
+      const file = evt.target.files[0];
+      if (file) this.readJsonFile(file);
+    },
+    handleDrop(evt) {
+      const file = evt.dataTransfer.files[0];
+      if (file) this.readJsonFile(file);
+    },
+    readJsonFile(file) {
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        try {
+          const data = JSON.parse(e.target.result);
+          this.jsonBrief = data;
+          this.jsonFileName = file.name;
+          this.validation = null;   // reset previous results
+          if (!this.projectName.trim() && data.project_name) {
+            this.projectName = data.project_name;
+          }
+          this.error = '';
+          // Auto-validate immediately on file load
+          await this.runValidation();
+        } catch(err) {
+          this.error = 'Invalid JSON: ' + err.message;
+          this.jsonBrief = null;
+        }
+      };
+      reader.readAsText(file);
+    },
+
+    async runValidation() {
+      if (!this.jsonBrief) { this.error = 'Upload a JSON file first.'; return; }
+      this.validating = true;
+      this.error = '';
+      try {
+        const r = await fetch('/api/validate-brief', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ brief: this.jsonBrief })
+        });
+        this.validation = await r.json();
+      } catch(e) {
+        this.error = 'Validation request failed: ' + e.message;
+      } finally {
+        this.validating = false;
+      }
+    },
+
+    async proceed() {
+      this.error = '';
+      if (!this.projectName.trim()) { this.error = 'Project name is required.'; return; }
+
+      if (this.method === 'json') {
+        if (!this.jsonBrief) { this.error = 'Please upload a JSON brief first.'; return; }
+        // Run validation if not done yet
+        if (!this.validation) { await this.runValidation(); }
+        if (this.validation && this.validation.error_count > 0) {
+          this.error = 'Fix the errors above before creating the project.';
+          return;
+        }
+        await this.createFromJson();
+      } else {
+        await this.createUiProject();
+      }
+    },
+
+    async createFromJson() {
+      this.loading = true;
+      try {
+        const payload = {
+          project_name: this.projectName,
+          slides: this.jsonBrief.slides || [this.jsonBrief]
+        };
+        const r = await fetch('/api/projects/from-json', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const d = await r.json();
+        if (!r.ok) { this.error = d.detail || 'Failed to create project.'; return; }
+        window.location.href = `/projects/${d.id}`;
+      } catch(e) {
+        this.error = 'Error: ' + e.message;
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    async createUiProject() {
+      this.loading = true;
+      try {
+        const r = await fetch('/api/projects', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: this.projectName, source: 'ui' })
+        });
+        const d = await r.json();
+        if (!r.ok) { this.error = d.detail || 'Failed to create project.'; return; }
+        // Add first empty slide then go to project
+        const r2 = await fetch(`/api/projects/${d.id}/slides`, { method: 'POST' });
+        const d2 = await r2.json();
+        window.location.href = `/projects/${d.id}`;
+      } catch(e) {
+        this.error = 'Error: ' + e.message;
+      } finally {
+        this.loading = false;
+      }
+    }
+  }
+}
+</script>
+{% endblock %}

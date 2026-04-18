@@ -14,37 +14,37 @@ colors:
 
 fonts:
   title:
-    path: "assets/fonts/title.ttf"
+    path: "assets/fonts/Gilroy-Bold.ttf"
     fallback: null                  # will use bundled default if missing
     size_range: [48, 88]
   subtitle:
-    path: "assets/fonts/title.ttf"
+    path: "assets/fonts/Gilroy-Bold.ttf"
     fallback: null
     size: 36
   inspiration_name:
-    path: "assets/fonts/body.ttf"
+    path: "assets/fonts/Gilroy-Bold.ttf"
     fallback: null
     size_by_count:
       2: 42
       3: 38
       4: 32
   inspiration_publisher:
-    path: "assets/fonts/body.ttf"
+    path: "assets/fonts/Gilroy-Bold.ttf"
     fallback: null
     size_by_count:
       2: 36
       3: 32
       4: 28
   branding:
-    path: "assets/fonts/body.ttf"
+    path: "assets/fonts/Gilroy-Bold.ttf"
     fallback: null
     size: 30
   pill:
-    path: "assets/fonts/body.ttf"
+    path: "assets/fonts/Gilroy-Bold.ttf"
     fallback: null
     size: 30
   profile:
-    path: "assets/fonts/body.ttf"
+    path: "assets/fonts/Gilroy-Bold.ttf"
     fallback: null
     size: 28
 

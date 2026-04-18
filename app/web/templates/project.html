@@ -1,0 +1,419 @@
+{% extends "base.html" %}
+{% block title %}{{ project.name }} — Market Radar Forge{% endblock %}
+
+{% block extra_head %}
+<style>
+body.studio-mode { overflow: hidden; }
+
+/* ── Slide list panel (inside sidebar) ──────────────────────────────────── */
+.slide-list { padding: 10px; border-bottom: 1px solid #e0e0e0; }
+.slide-list-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 4px 4px 10px;
+}
+.slide-list-title { font-size: 11px; font-weight: 700; color: #888; text-transform: uppercase; letter-spacing: .5px; }
+
+.slide-tiles { display: flex; flex-direction: column; gap: 6px; }
+.slide-tile {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px; border-radius: 8px; cursor: pointer;
+  border: 1.5px solid transparent; transition: background .12s, border-color .12s;
+  background: #f8f8f8;
+}
+.slide-tile:hover { background: #f0f0f0; }
+.slide-tile.active { border-color: #111; background: #fff; }
+.slide-thumb-sm {
+  width: 42px; height: 42px; border-radius: 5px; object-fit: cover;
+  flex-shrink: 0; background: #eee;
+}
+.slide-thumb-sm-bg {
+  width: 42px; height: 42px; border-radius: 5px; flex-shrink: 0;
+  background-image: url('/assets/background/market_radar_bg.png');
+  background-size: cover; background-position: top;
+  opacity: .6;
+}
+.slide-tile-info { flex: 1; min-width: 0; }
+.slide-tile-num { font-size: 10px; font-weight: 700; color: #aaa; margin-bottom: 2px; }
+.slide-tile-name { font-size: 12px; font-weight: 600; color: #333;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ── Edit form (below slide list) ───────────────────────────────────────── */
+.edit-form-area { flex: 1; overflow-y: auto; padding: 12px 16px 16px; }
+
+/* ── Canvas area respects topbar height ──────────────────────────────────── */
+.canvas-area { height: calc(100vh - var(--topbar-height)); }
+
+/* ── Export bar ──────────────────────────────────────────────────────────── */
+.topbar .project-name-display {
+  font-size: 13px; color: #ccc; font-weight: 600;
+  max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+</style>
+{% endblock %}
+
+{% block topbar_center %}
+  <span class="sep">|</span>
+  <span class="project-name-display">{{ project.name }}</span>
+{% endblock %}
+
+{% block topbar_right %}
+  <span class="saving-indicator" id="save-msg" style="font-size:12px;color:#888"></span>
+  <a href="/" class="btn btn-secondary" style="font-size:12px;padding:6px 12px">← Projects</a>
+  <a id="export-btn" href="#" class="btn btn-yellow" download style="font-size:12px">⬇ Export PNG</a>
+{% endblock %}
+
+{% block body %}
+<script>document.body.classList.add('studio-mode');</script>
+
+<div class="studio"
+     x-data="projectEditor(
+       '{{ project.id }}',
+       {{ slides | tojson }},
+       '{% if initial_draft %}{{ initial_draft.id }}{% endif %}',
+       '{{ initial_preview_url }}',
+       {% if initial_draft %}{{ initial_draft.edit_count }}{% else %}0{% endif %}
+     )"
+     x-init="init()">
+
+  <!-- ══ Sidebar ══════════════════════════════════════════════════════════════ -->
+  <aside class="sidebar" style="display:flex;flex-direction:column;overflow:hidden">
+
+    <!-- JSON reload strip -->
+    <div class="json-upload-strip">
+      <span>🔄 Reload JSON:</span>
+      <label>
+        Upload JSON
+        <input type="file" accept=".json,application/json" @change="reloadJson($event)" />
+      </label>
+    </div>
+
+    <!-- Slide list -->
+    <div class="slide-list">
+      <div class="slide-list-header">
+        <span class="slide-list-title">Slides (<span x-text="slides.length"></span>)</span>
+        <button class="btn btn-xs btn-primary" @click="addSlide()" :disabled="addingSlide">
+          <template x-if="addingSlide"><span class="spinner" style="width:10px;height:10px"></span></template>
+          <template x-if="!addingSlide"><span>+ Add Slide</span></template>
+        </button>
+      </div>
+
+      <div class="slide-tiles">
+        <template x-for="(slide, idx) in slides" :key="slide.draft_id">
+          <div class="slide-tile" :class="slide.draft_id === activeDraftId ? 'active' : ''"
+               @click="switchSlide(slide.draft_id)">
+            <template x-if="slide.preview_url">
+              <img :src="slide.preview_url" class="slide-thumb-sm" />
+            </template>
+            <template x-if="!slide.preview_url">
+              <div class="slide-thumb-sm-bg"></div>
+            </template>
+            <div class="slide-tile-info">
+              <div class="slide-tile-num" x-text="'Slide ' + (idx + 1)"></div>
+              <div class="slide-tile-name" x-text="slide.title || 'Untitled'"></div>
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+
+    <!-- Edit form area -->
+    <div class="edit-form-area">
+
+      <div x-show="!activeDraftId" style="text-align:center;padding:40px 0;color:#aaa;font-size:13px">
+        Select a slide to edit
+      </div>
+
+      <div x-show="activeDraftId">
+
+        <!-- Main Game -->
+        <div class="sb-section" style="margin-bottom:10px">
+          <div class="sb-section-header" @click="sections.mainGame = !sections.mainGame">
+            <span class="sb-section-title">🎮 Main Game</span>
+            <span x-text="sections.mainGame ? '▲' : '▼'" style="font-size:10px;color:#aaa"></span>
+          </div>
+          <div x-show="sections.mainGame" class="sb-section-body">
+            <div class="field">
+              <label>Game Name</label>
+              <input type="text" x-model="fields.game_name" @input.debounce.600ms="save()" />
+            </div>
+            <div class="field">
+              <label>Publisher</label>
+              <input type="text" x-model="fields.publisher" @input.debounce.600ms="save()" />
+            </div>
+            <div class="field">
+              <label>Screenshot</label>
+              <template x-if="screenshotPreview">
+                <img :src="screenshotPreview" class="ss-thumb" />
+              </template>
+              <label class="icon-upload-btn" style="display:block;text-align:center;padding:8px">
+                Replace Screenshot
+                <input type="file" accept="image/*" style="display:none" @change="replaceImage($event,'main_screenshot')" />
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <!-- Inspirations -->
+        <div class="sb-section">
+          <div class="sb-section-header" @click="sections.inspirations = !sections.inspirations">
+            <span class="sb-section-title">✨ Inspirations (<span x-text="fields.inspirations.length"></span>)</span>
+            <span x-text="sections.inspirations ? '▲' : '▼'" style="font-size:10px;color:#aaa"></span>
+          </div>
+          <div x-show="sections.inspirations" class="sb-section-body">
+            <template x-for="(insp, i) in fields.inspirations" :key="i">
+              <div class="insp-block">
+                <div class="insp-num" x-text="'Inspiration ' + (i+1)"></div>
+                <div class="row">
+                  <div class="field">
+                    <label>Name</label>
+                    <input type="text" x-model="insp.name" @input.debounce.600ms="save()" />
+                  </div>
+                  <div class="field">
+                    <label>Publisher</label>
+                    <input type="text" x-model="insp.publisher" @input.debounce.600ms="save()" />
+                  </div>
+                </div>
+                <div style="display:flex;align-items:center;gap:8px;margin-top:4px">
+                  <span style="font-size:11px;color:#aaa" x-text="insp.icon_status || 'needs_upload'"></span>
+                  <label class="icon-upload-btn">
+                    Replace Icon
+                    <input type="file" accept="image/*" style="display:none"
+                           @change="replaceImageDynamic($event, i)" />
+                  </label>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Sidebar footer -->
+    <div class="sidebar-footer">
+      <button class="btn btn-secondary btn-full" @click="regenerate()" :disabled="saving">
+        <span x-show="saving" class="spinner"></span>
+        🔄 Re-render
+      </button>
+    </div>
+
+  </aside>
+
+  <!-- ══ Canvas area ══════════════════════════════════════════════════════════ -->
+  <div class="canvas-area">
+    <div class="canvas-wrap">
+
+      <img x-show="activePreviewUrl"
+           :src="activePreviewUrl"
+           class="canvas-img"
+           :class="saving ? 'preview-loading' : ''"
+           @load="saving = false"
+           alt="Design preview" />
+
+      <img x-show="!activePreviewUrl"
+           src="/assets/background/market_radar_bg.png"
+           class="canvas-img" alt="Background" />
+
+      <div class="canvas-loading-overlay" x-show="saving">
+        <div style="text-align:center">
+          <div class="spinner-white" style="width:32px;height:32px;border-width:3px;margin:0 auto 10px"></div>
+          <div style="color:#fff;font-size:13px;font-weight:600" x-text="saveMsg || 'Rendering…'"></div>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="canvas-info">
+      <span style="color:#555">1080 × 1080 px</span>
+      <span style="color:#444">·</span>
+      <span style="color:#555" x-text="'v' + activeEditCount"></span>
+      <a :href="'/drafts/' + activeDraftId + '/export'" class="btn btn-yellow btn-sm" download style="margin-left:8px">⬇ Export</a>
+    </div>
+  </div>
+
+</div>
+
+<style>
+.preview-loading { opacity: .4; transition: opacity .3s; }
+</style>
+
+<script>
+function projectEditor(projectId, initialSlides, initialDraftId, initialPreviewUrl, initialEditCount) {
+  return {
+    projectId,
+    slides: initialSlides,          // [{draft_id, title, preview_url}]
+    activeDraftId: initialDraftId,
+    activePreviewUrl: initialPreviewUrl,
+    activeEditCount: initialEditCount,
+    saving: false,
+    saveMsg: '',
+    addingSlide: false,
+    screenshotPreview: null,
+    sections: { mainGame: true, inspirations: true },
+    fields: {
+      game_name: '{% if initial_draft %}{{ initial_draft.game_name | e }}{% endif %}',
+      publisher: '{% if initial_draft and initial_draft.publisher %}{{ initial_draft.publisher | e }}{% endif %}',
+      inspirations: [
+        {% if initial_draft %}
+        {% for insp in initial_draft.inspirations %}
+        { index: {{ loop.index0 }}, name: {{ insp.name | tojson }}, publisher: {{ (insp.publisher or '') | tojson }}, icon_status: {{ insp.icon_status.value | tojson }} }{% if not loop.last %},{% endif %}
+        {% endfor %}
+        {% endif %}
+      ]
+    },
+
+    init() {
+      this._updateExportBtn();
+    },
+
+    /* ── Switch active slide ───────────────────────────────────────────────── */
+    async switchSlide(draftId) {
+      if (draftId === this.activeDraftId) return;
+      this.saving = true; this._setMsg('Loading…');
+      try {
+        const r = await fetch(`/drafts/${draftId}`);
+        if (!r.ok) return;
+        const d = await r.json();
+        this.activeDraftId = draftId;
+        this.activePreviewUrl = d.preview_url || '';
+        this.activeEditCount = d.edit_count;
+        this.screenshotPreview = null;
+        this.fields = {
+          game_name: d.game_name || '',
+          publisher: d.publisher || '',
+          inspirations: d.inspirations.map((insp, i) => ({
+            index: i,
+            name: insp.name || '',
+            publisher: insp.publisher || '',
+            icon_status: insp.icon_status,
+          }))
+        };
+        this._setMsg('', 0);
+        this._updateExportBtn();
+      } finally { this.saving = false; }
+    },
+
+    /* ── Save (PATCH fields) ───────────────────────────────────────────────── */
+    async save() {
+      if (!this.activeDraftId) return;
+      this.saving = true; this._setMsg('Saving…');
+      try {
+        const r = await fetch(`/drafts/${this.activeDraftId}/fields`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            game_name: this.fields.game_name,
+            publisher: this.fields.publisher,
+            inspirations: this.fields.inspirations.map(i => ({ index: i.index, name: i.name, publisher: i.publisher }))
+          })
+        });
+        const d = await r.json();
+        if (r.ok) {
+          this.activeEditCount = d.edit_count;
+          this.activePreviewUrl = d.preview_url;
+          this._syncSlideTile(this.activeDraftId, { preview_url: d.preview_url, title: this.fields.game_name });
+          await this._syncProjectSlide(this.activeDraftId);
+          this._setMsg('Saved ✓', 2000);
+        } else { this._setMsg('Error: ' + (d.detail || 'save failed')); }
+      } finally { this.saving = false; }
+    },
+
+    /* ── Replace image ─────────────────────────────────────────────────────── */
+    async replaceImage(evt, slot) {
+      const file = evt.target.files[0]; if (!file) return;
+      this.saving = true; this._setMsg('Uploading…');
+      try {
+        const fd = new FormData(); fd.append('file', file);
+        const r = await fetch(`/drafts/${this.activeDraftId}/images/${slot}`, { method: 'POST', body: fd });
+        const d = await r.json();
+        if (r.ok) {
+          this.activeEditCount = d.edit_count; this.activePreviewUrl = d.preview_url;
+          if (slot === 'main_screenshot') this.screenshotPreview = URL.createObjectURL(file);
+          this._syncSlideTile(this.activeDraftId, { preview_url: d.preview_url });
+          await this._syncProjectSlide(this.activeDraftId);
+          this._setMsg('Updated ✓', 2000);
+        }
+      } finally { this.saving = false; }
+    },
+
+    replaceImageDynamic(evt, idx) {
+      this.replaceImage(evt, `inspiration_${idx}_icon`);
+    },
+
+    /* ── Regenerate ────────────────────────────────────────────────────────── */
+    async regenerate() {
+      if (!this.activeDraftId) return;
+      this.saving = true; this._setMsg('Re-rendering…');
+      try {
+        const r = await fetch(`/drafts/${this.activeDraftId}/regenerate`, { method: 'POST' });
+        const d = await r.json();
+        if (r.ok) {
+          this.activeEditCount = d.edit_count; this.activePreviewUrl = d.preview_url;
+          this._syncSlideTile(this.activeDraftId, { preview_url: d.preview_url });
+          this._setMsg('Done ✓', 2000);
+        }
+      } finally { this.saving = false; }
+    },
+
+    /* ── Add slide ─────────────────────────────────────────────────────────── */
+    async addSlide() {
+      this.addingSlide = true;
+      try {
+        const r = await fetch(`/api/projects/${this.projectId}/slides`, { method: 'POST' });
+        const d = await r.json();
+        if (!r.ok) { alert('Error: ' + (d.detail || 'could not add slide')); return; }
+        const newSlide = { draft_id: d.draft_id, title: d.title || 'New Slide', preview_url: d.preview_url || null };
+        this.slides.push(newSlide);
+        await this.switchSlide(d.draft_id);
+      } finally { this.addingSlide = false; }
+    },
+
+    /* ── Reload JSON ───────────────────────────────────────────────────────── */
+    async reloadJson(evt) {
+      const file = evt.target.files[0]; if (!file) return;
+      try {
+        const brief = JSON.parse(await file.text());
+        if (brief.main_game) {
+          this.fields.game_name = brief.main_game.name || this.fields.game_name;
+          this.fields.publisher = brief.main_game.publisher || '';
+        }
+        if (Array.isArray(brief.inspirations)) {
+          brief.inspirations.forEach((insp, i) => {
+            if (this.fields.inspirations[i]) {
+              this.fields.inspirations[i].name = insp.name || '';
+              this.fields.inspirations[i].publisher = insp.publisher || '';
+            }
+          });
+        }
+        await this.save();
+      } catch(e) { this._setMsg('Invalid JSON: ' + e.message); }
+    },
+
+    /* ── Helpers ───────────────────────────────────────────────────────────── */
+    _syncSlideTile(draftId, updates) {
+      const slide = this.slides.find(s => s.draft_id === draftId);
+      if (slide) {
+        if (updates.preview_url) slide.preview_url = updates.preview_url + '&t=' + Date.now();
+        if (updates.title) slide.title = updates.title;
+      }
+    },
+
+    async _syncProjectSlide(draftId) {
+      await fetch(`/api/projects/${this.projectId}/slides/${draftId}`, { method: 'PATCH' });
+    },
+
+    _updateExportBtn() {
+      const btn = document.getElementById('export-btn');
+      if (btn && this.activeDraftId) btn.href = `/drafts/${this.activeDraftId}/export`;
+    },
+
+    _setMsg(msg, clearAfter) {
+      this.saveMsg = msg;
+      const el = document.getElementById('save-msg');
+      if (el) el.textContent = msg;
+      if (clearAfter) setTimeout(() => { this.saveMsg = ''; if (el) el.textContent = ''; }, clearAfter);
+    }
+  }
+}
+</script>
+{% endblock %}

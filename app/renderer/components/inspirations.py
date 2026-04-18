@@ -15,24 +15,17 @@ from app.renderer.text_fit import _load_font, measure_text
 
 
 def _rounded_icon(icon_img: Image.Image, size: int, radius: int) -> Image.Image:
-    """Resize icon to square, apply white background tile, round corners."""
-    # Create white tile
-    tile = Image.new("RGBA", (size, size), (255, 255, 255, 255))
-    # Resize icon to fit inside tile with 6px padding
-    pad = max(4, size // 16)
-    inner_size = size - pad * 2
-    icon_resized = icon_img.convert("RGBA").resize((inner_size, inner_size), Image.LANCZOS)
-    tile.paste(icon_resized, (pad, pad), icon_resized)
-
+    """Resize icon to square and apply rounded corners — no white border or padding."""
+    icon_resized = icon_img.convert("RGBA").resize((size, size), Image.LANCZOS)
     # Rounded mask
     mask = Image.new("L", (size, size), 0)
     ImageDraw.Draw(mask).rounded_rectangle([0, 0, size - 1, size - 1], radius=radius, fill=255)
     result = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    result.paste(tile, mask=mask)
+    result.paste(icon_resized, mask=mask)
     return result
 
 
-def _placeholder_icon(size: int, radius: int, color: str = "#E0E0E0") -> Image.Image:
+def _placeholder_icon(size: int, radius: int, color: str = "#CCCCCC") -> Image.Image:
     tile = Image.new("RGBA", (size, size), color)
     mask = Image.new("L", (size, size), 0)
     ImageDraw.Draw(mask).rounded_rectangle([0, 0, size - 1, size - 1], radius=radius, fill=255)
