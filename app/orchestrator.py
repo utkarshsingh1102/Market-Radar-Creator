@@ -12,7 +12,9 @@ from pathlib import Path  # noqa: F401 — used in _resolve_screenshot path sour
 
 from app.config import settings, tokens
 from app.renderer.engine import render
+from app.resolvers.combined import CombinedIconResolver
 from app.resolvers.itunes import ItunesIconResolver
+from app.resolvers.playstore import PlayStoreIconResolver
 from app.resolvers.upload import UploadIconResolver
 from app.schemas import (
     BriefIn,
@@ -29,7 +31,9 @@ logger = logging.getLogger(__name__)
 class Orchestrator:
     def __init__(self, store: AssetStore) -> None:
         self._store = store
-        self._itunes = ItunesIconResolver(store, settings.itunes_rate_limit)
+        _itunes = ItunesIconResolver(store, settings.itunes_rate_limit)
+        _playstore = PlayStoreIconResolver(store)
+        self._icon_resolver = CombinedIconResolver(_itunes, _playstore)
         self._upload = UploadIconResolver(store)
 
     # ── Draft lifecycle ───────────────────────────────────────────────────────
@@ -147,7 +151,7 @@ class Orchestrator:
 
     async def _resolve_icon(self, icon_src, draft_id: uuid.UUID, idx: int):
         if icon_src.source == "auto":
-            icon_bytes = await self._itunes.resolve(icon_src.query)
+            icon_bytes = await self._icon_resolver.resolve(icon_src.query)
             if icon_bytes:
                 key = f"drafts/{draft_id}/icon_{idx}.png"
                 await self._store.put(key, icon_bytes)
