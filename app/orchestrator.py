@@ -13,6 +13,7 @@ from pathlib import Path  # noqa: F401 — used in _resolve_screenshot path sour
 from app.config import settings, tokens
 from app.renderer.engine import render
 from app.resolvers.combined import CombinedIconResolver
+from app.resolvers.concept import ConceptIconResolver
 from app.resolvers.itunes import ItunesIconResolver
 from app.resolvers.playstore import PlayStoreIconResolver
 from app.resolvers.upload import UploadIconResolver
@@ -28,6 +29,12 @@ from app.storage.base import AssetStore
 logger = logging.getLogger(__name__)
 
 
+def _gplay_app(app_id: str) -> dict:
+    """Synchronous Play Store metadata fetch — run in a thread pool."""
+    from google_play_scraper import app as gplay_app  # type: ignore
+    return gplay_app(app_id, lang="en", country="us")
+
+
 class Orchestrator:
     def __init__(self, store: AssetStore) -> None:
         self._store = store
@@ -35,6 +42,7 @@ class Orchestrator:
         _playstore = PlayStoreIconResolver(store)
         self._icon_resolver = CombinedIconResolver(_itunes, _playstore)
         self._upload = UploadIconResolver(store)
+        self._concept = ConceptIconResolver(store)
 
     # ── Draft lifecycle ───────────────────────────────────────────────────────
 
@@ -95,6 +103,75 @@ class Orchestrator:
         return await self._do_render(draft)
 
     # ── Internal helpers ──────────────────────────────────────────────────────
+
+    async def create_draft_from_text_slide(
+        self,
+        app_id: str,
+        inspirations_data: list[dict],  # [{"name": str, "publisher": str|None}]
+    ) -> DraftState:
+        """
+        Fetch the main game details from Google Play by app_id, resolve all
+        inspiration icons (auto / concept), render and persist a new draft.
+        """
+        import asyncio
+        import functools
+
+        # Fetch main game metadata from Play Store
+        loop = asyncio.get_event_loop()
+        try:
+            app_info = await loop.run_in_executor(
+                None, functools.partial(_gplay_app, app_id)
+            )
+            game_name = app_info.get("title", app_id)
+            publisher = app_info.get("developer", None)
+        except Exception as exc:
+            logger.warning("Play Store app lookup failed for %r: %s", app_id, exc)
+            game_name = app_id
+            publisher = None
+
+        draft_id = uuid.uuid4()
+
+        insps: list[InspirationDraft] = []
+        for i, insp_data in enumerate(inspirations_data):
+            name = insp_data["name"]
+            pub = insp_data.get("publisher")
+
+            if pub:
+                # Named game with publisher — try app stores
+                query = f"{name} {pub}"
+                icon_bytes = await self._icon_resolver.resolve(query)
+                if icon_bytes:
+                    key = f"drafts/{draft_id}/icon_{i}.png"
+                    await self._store.put(key, icon_bytes)
+                    insps.append(InspirationDraft(
+                        name=name, publisher=pub,
+                        icon_status=IconStatus.ok, icon_asset_key=key,
+                    ))
+                else:
+                    insps.append(InspirationDraft(
+                        name=name, publisher=pub,
+                        icon_status=IconStatus.needs_upload,
+                    ))
+            else:
+                # No publisher → concept icon
+                icon_bytes = await self._concept.resolve(name)
+                key = f"drafts/{draft_id}/icon_{i}.png"
+                await self._store.put(key, icon_bytes)
+                insps.append(InspirationDraft(
+                    name=name, publisher=None,
+                    icon_status=IconStatus.ok, icon_asset_key=key,
+                ))
+
+        draft = DraftState(
+            id=draft_id,
+            game_name=game_name,
+            publisher=publisher,
+            screenshot_asset_key=None,
+            inspirations=insps,
+        )
+        await self._render_and_save(draft)
+        await self._persist_draft(draft)
+        return draft
 
     async def create_empty_draft(self, game_name: str = "New Slide") -> DraftState:
         """Create a blank draft (no screenshot, placeholder inspirations)."""
@@ -164,6 +241,11 @@ class Orchestrator:
                 await self._store.put(key, icon_bytes)
                 return icon_bytes, key, IconStatus.ok
             return None, None, IconStatus.needs_upload
+        elif icon_src.source == "concept":
+            icon_bytes = await self._concept.resolve(icon_src.name)
+            key = f"drafts/{draft_id}/icon_{idx}.png"
+            await self._store.put(key, icon_bytes)
+            return icon_bytes, key, IconStatus.ok
         return None, None, IconStatus.needs_upload
 
     async def _do_render(self, draft: DraftState) -> bytes:

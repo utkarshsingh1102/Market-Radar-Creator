@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from app.models.project import Project, ProjectSlide
 from app.schemas import ProjectBriefIn
+from app.utils.text_brief_parser import TextBriefParseError, parse_text_brief
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
@@ -109,6 +110,47 @@ async def create_project_from_json(body: ProjectBriefIn, request: Request):
 
     for i, slide_brief in enumerate(body.slides):
         draft = await orchestrator.create_draft(slide_brief)
+        project.slides.append(ProjectSlide(
+            draft_id=str(draft.id),
+            title=draft.game_name,
+            preview_key=draft.preview_asset_key,
+        ))
+
+    await _save_project(projects_dir, project)
+    return _project_to_dict(project, base)
+
+
+class CreateFromTextBody(BaseModel):
+    project_name: str
+    text: str
+
+
+@router.post("/from-text", status_code=201)
+async def create_project_from_text(body: CreateFromTextBody, request: Request):
+    """
+    Parse the numbered-slide text format, fetch Play Store metadata for each
+    main game, resolve inspiration icons (or generate concept placeholders),
+    and create the project with all slides.
+    """
+    try:
+        parsed_slides = parse_text_brief(body.text)
+    except TextBriefParseError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    orchestrator = request.app.state.orchestrator
+    projects_dir = _projects_dir(request)
+    base = str(request.base_url).rstrip("/")
+
+    project = Project(name=body.project_name, source="text")
+
+    for parsed in parsed_slides:
+        draft = await orchestrator.create_draft_from_text_slide(
+            app_id=parsed.app_id,
+            inspirations_data=[
+                {"name": insp.name, "publisher": insp.publisher}
+                for insp in parsed.inspirations
+            ],
+        )
         project.slides.append(ProjectSlide(
             draft_id=str(draft.id),
             title=draft.game_name,

@@ -23,8 +23,15 @@ class IconSourceUpload(BaseModel):
     upload_id: str = Field(..., min_length=1)
 
 
+class IconSourceConcept(BaseModel):
+    """Mechanic / theme name with no associated app store entry.
+    A placeholder icon will be generated from the name."""
+    source: Literal["concept"]
+    name: str = Field(..., min_length=1)
+
+
 IconSource = Annotated[
-    IconSourceAuto | IconSourceUpload,
+    IconSourceAuto | IconSourceUpload | IconSourceConcept,
     Field(discriminator="source"),
 ]
 

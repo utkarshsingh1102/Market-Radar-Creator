@@ -26,7 +26,7 @@ h1 { font-size: 24px; font-weight: 800; color: #fff; margin-bottom: 6px; }
 .name-field input::placeholder { color: #444; }
 
 /* ── Option cards ────────────────────────────────────────────────────────── */
-.options { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.options { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
 .option-card {
   background: #1c1c1c; border: 2px solid #2a2a2a;
   border-radius: 14px; padding: 28px 24px;
@@ -95,6 +95,49 @@ h1 { font-size: 24px; font-weight: 800; color: #fff; margin-bottom: 6px; }
   white-space: pre-wrap; background: #111; border-left: 3px solid #333;
   padding: 6px 10px; border-radius: 0 4px 4px 0; }
 
+/* ── Text paste zone ─────────────────────────────────────────────────────── */
+.text-zone { margin-top: 28px; display: none; }
+.text-zone.visible { display: block; }
+.text-zone label {
+  display: block; font-size: 11px; font-weight: 700; color: #666;
+  text-transform: uppercase; letter-spacing: .5px; margin-bottom: 8px;
+}
+.text-zone textarea {
+  width: 100%; min-height: 200px; padding: 14px 16px;
+  background: #1c1c1c; border: 1px solid #333; border-radius: 8px;
+  color: #ddd; font-size: 13px; font-family: monospace; line-height: 1.6;
+  resize: vertical; outline: none; transition: border-color .15s;
+}
+.text-zone textarea:focus { border-color: var(--yellow); }
+.text-zone textarea::placeholder { color: #444; }
+.text-format-hint {
+  margin-top: 10px; padding: 12px 14px;
+  background: #181818; border: 1px solid #252525; border-radius: 8px;
+  font-size: 12px; color: #555; line-height: 1.7; font-family: monospace;
+}
+.text-format-hint strong { color: #888; }
+
+/* ── Parsed slides preview ───────────────────────────────────────────────── */
+.parsed-preview {
+  margin-top: 16px; border-radius: 10px; overflow: hidden;
+  border: 1px solid #2a2a2a;
+}
+.parsed-header {
+  padding: 10px 14px; background: #0d2b0d; color: #4caf50;
+  font-size: 13px; font-weight: 700; border-bottom: 1px solid #1a4a1a;
+}
+.parsed-slide {
+  padding: 10px 16px; border-bottom: 1px solid #222;
+  display: flex; gap: 10px; align-items: flex-start;
+  background: #181818; font-size: 13px; color: #ddd;
+}
+.parsed-slide:last-child { border-bottom: none; }
+.parsed-num { color: #555; font-size: 11px; font-weight: 700; min-width: 24px; padding-top: 2px; }
+.parsed-info { flex: 1; }
+.parsed-game { font-weight: 700; color: #eee; margin-bottom: 3px; }
+.parsed-insps { font-size: 12px; color: #666; }
+.parsed-concept { color: var(--yellow); font-size: 11px; margin-left: 4px; }
+
 /* ── Actions ─────────────────────────────────────────────────────────────── */
 .actions { margin-top: 24px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 .back-link { font-size: 13px; color: #555; text-decoration: none; }
@@ -141,6 +184,59 @@ h1 { font-size: 24px; font-weight: 800; color: #fff; margin-bottom: 6px; }
       <div class="option-desc">Create slides one by one using the visual form editor. No JSON needed.</div>
     </div>
 
+    <!-- Text paste option -->
+    <div class="option-card" :class="method==='text' ? 'selected' : ''" @click="method='text'">
+      <span class="option-icon">📋</span>
+      <div class="option-title">Paste Text</div>
+      <div class="option-desc">Paste numbered slide notes with Play Store URLs. Icons fetched automatically.</div>
+    </div>
+
+  </div>
+
+  <!-- Text paste zone (shown when text method selected) -->
+  <div class="text-zone" :class="method==='text' ? 'visible' : ''">
+    <label>Slide Notes</label>
+    <textarea
+      x-model="rawText"
+      @input="parsedSlides = null"
+      placeholder="12) https://play.google.com/store/apps/details?id=com.example.game&#10;Color block jam by Rollic + Bus Frenzy by CrazyLabs&#10;&#10;13) https://play.google.com/store/apps/details?id=com.example.game2&#10;Coffee Mania by CrazyLabs + Packing"
+    ></textarea>
+    <div class="text-format-hint">
+      <strong>Format:</strong><br>
+      {number}) {Play Store URL}<br>
+      {Game} by {Publisher} + {Game} by {Publisher} + {Concept}<br><br>
+      Entries without a publisher (e.g. <strong>Packing</strong>) are treated as
+      concept/mechanic names — a placeholder icon is auto-generated.
+    </div>
+
+    <!-- Parsed preview -->
+    <div class="parsed-preview" x-show="parsedSlides !== null && parsedSlides.length > 0">
+      <div class="parsed-header">✓ <span x-text="parsedSlides ? parsedSlides.length : 0"></span> slide<span x-show="parsedSlides && parsedSlides.length !== 1">s</span> ready</div>
+      <template x-for="(s, i) in (parsedSlides || [])" :key="i">
+        <div class="parsed-slide">
+          <div class="parsed-num" x-text="(s.slide_number || (i+1)) + ')'"></div>
+          <div class="parsed-info">
+            <div class="parsed-game" x-text="s.app_id"></div>
+            <div class="parsed-insps">
+              <template x-for="(insp, j) in s.inspirations" :key="j">
+                <span>
+                  <span x-text="insp.name"></span>
+                  <template x-if="insp.publisher">
+                    <span style="color:#888"> by <span x-text="insp.publisher"></span></span>
+                  </template>
+                  <template x-if="!insp.publisher">
+                    <span class="parsed-concept">⚡ concept</span>
+                  </template>
+                  <template x-if="j < s.inspirations.length - 1">
+                    <span style="color:#444"> · </span>
+                  </template>
+                </span>
+              </template>
+            </div>
+          </div>
+        </div>
+      </template>
+    </div>
   </div>
 
   <!-- JSON upload zone (shown when JSON method selected) -->
@@ -202,7 +298,7 @@ h1 { font-size: 24px; font-weight: 800; color: #fff; margin-bottom: 6px; }
   <div class="actions">
     <a href="/" class="back-link">← Back</a>
 
-    <!-- Validate button (shown before validation or when JSON changes) -->
+    <!-- Validate button (shown for JSON method) -->
     <button class="btn btn-secondary" style="font-size:14px;padding:11px 24px"
             @click="runValidation()"
             :disabled="validating || (method==='json' && !jsonBrief)"
@@ -211,10 +307,20 @@ h1 { font-size: 24px; font-weight: 800; color: #fff; margin-bottom: 6px; }
       <span x-text="validating ? 'Checking…' : '🔍 Check JSON'"></span>
     </button>
 
+    <!-- Parse button (shown for text method) -->
+    <button class="btn btn-secondary" style="font-size:14px;padding:11px 24px"
+            @click="parseText()"
+            :disabled="!rawText.trim()"
+            x-show="method === 'text'">
+      🔍 Preview Slides
+    </button>
+
     <!-- Create button -->
     <button class="btn btn-yellow" style="font-size:14px;padding:11px 28px"
             @click="proceed()"
-            :disabled="loading || !projectName.trim() || (method==='json' && validation && validation.error_count > 0)">
+            :disabled="loading || !projectName.trim()
+              || (method==='json' && validation && validation.error_count > 0)
+              || (method==='text' && !rawText.trim())">
       <span x-show="loading" class="spinner"></span>
       <span x-text="loading ? 'Creating…' : 'Create Project →'"></span>
     </button>
@@ -233,6 +339,8 @@ function newProject() {
     loading: false,
     validating: false,
     validation: null,   // result from /api/validate-brief
+    rawText: '',
+    parsedSlides: null, // result from client-side parse preview
     error: '',
 
     init() {},
@@ -289,6 +397,12 @@ function newProject() {
       this.error = '';
       if (!this.projectName.trim()) { this.error = 'Project name is required.'; return; }
 
+      if (this.method === 'text') {
+        if (!this.rawText.trim()) { this.error = 'Paste your slide notes first.'; return; }
+        await this.createFromText();
+        return;
+      }
+
       if (this.method === 'json') {
         if (!this.jsonBrief) { this.error = 'Please upload a JSON brief first.'; return; }
         // Run validation if not done yet
@@ -314,6 +428,57 @@ function newProject() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
+        });
+        const d = await r.json();
+        if (!r.ok) { this.error = d.detail || 'Failed to create project.'; return; }
+        window.location.href = `/projects/${d.id}`;
+      } catch(e) {
+        this.error = 'Error: ' + e.message;
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    parseText() {
+      // Client-side preview parse — mirrors the server parser logic
+      this.error = '';
+      this.parsedSlides = null;
+      const text = this.rawText.trim();
+      if (!text) { this.error = 'Paste your slide notes first.'; return; }
+
+      const blocks = text.split(/\n{2,}/);
+      const slides = [];
+      for (let bi = 0; bi < blocks.length; bi++) {
+        const lines = blocks[bi].trim().split('\n').map(l => l.trim()).filter(Boolean);
+        if (lines.length < 2) { this.error = `Block ${bi+1}: expected 2 lines (URL + inspirations).`; return; }
+
+        let urlLine = lines[0];
+        let slideNum = null;
+        const numMatch = urlLine.match(/^(\d+)[).]\s*/);
+        if (numMatch) { slideNum = parseInt(numMatch[1]); urlLine = urlLine.slice(numMatch[0].length).trim(); }
+
+        const idMatch = urlLine.match(/[?&]id=([\w.]+)/);
+        if (!idMatch) { this.error = `Block ${bi+1}: no app id found in URL.`; return; }
+        const appId = idMatch[1];
+
+        const insps = lines[1].split('+').map(p => p.trim()).filter(Boolean).map(part => {
+          const byMatch = part.match(/^(.+?)\s+by\s+(.+)$/i);
+          if (byMatch) return { name: byMatch[1].trim(), publisher: byMatch[2].trim() };
+          return { name: part, publisher: null };
+        });
+
+        slides.push({ slide_number: slideNum, app_id: appId, inspirations: insps });
+      }
+      this.parsedSlides = slides;
+    },
+
+    async createFromText() {
+      this.loading = true;
+      try {
+        const r = await fetch('/api/projects/from-text', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ project_name: this.projectName, text: this.rawText })
         });
         const d = await r.json();
         if (!r.ok) { this.error = d.detail || 'Failed to create project.'; return; }
