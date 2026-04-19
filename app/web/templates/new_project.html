@@ -6,8 +6,8 @@
 body { overflow-y: auto; background: #111; }
 .np-wrap {
   max-width: 680px; margin: 0 auto;
-  padding: 60px 24px 80px;
-  min-height: calc(100vh - 52px);
+  padding: calc(var(--topbar-height) + 48px) 24px 80px;
+  min-height: 100vh;
   display: flex; flex-direction: column; justify-content: center;
 }
 h1 { font-size: 24px; font-weight: 800; color: #fff; margin-bottom: 6px; }
@@ -337,7 +337,11 @@ function newProject() {
         if (!r.ok) { this.error = d.detail || 'Failed to create project.'; return; }
         // Add first empty slide then go to project
         const r2 = await fetch(`/api/projects/${d.id}/slides`, { method: 'POST' });
-        const d2 = await r2.json();
+        if (!r2.ok) {
+          const e2 = await r2.json().catch(() => ({}));
+          this.error = e2.detail || 'Project created but failed to add first slide.';
+          // Still navigate — the project page will auto-create a slide on init
+        }
         window.location.href = `/projects/${d.id}`;
       } catch(e) {
         this.error = 'Error: ' + e.message;

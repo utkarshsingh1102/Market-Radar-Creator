@@ -54,15 +54,36 @@ async def project_page(project_id: str, request: Request):
 
     # Load first slide's draft fields for initial render
     initial_draft = None
+    initial_draft_data = None
+    initial_preview_url = ""
     if project.slides:
         initial_draft = await orchestrator.load_draft(project.slides[0].draft_id)
+        if initial_draft:
+            initial_preview_url = (
+                f"{base}/storage/{initial_draft.preview_asset_key}?v={initial_draft.edit_count}"
+                if initial_draft.preview_asset_key else ""
+            )
+            initial_draft_data = {
+                "id": str(initial_draft.id),
+                "game_name": initial_draft.game_name,
+                "publisher": initial_draft.publisher or "",
+                "edit_count": initial_draft.edit_count,
+                "inspirations": [
+                    {
+                        "name": insp.name,
+                        "publisher": insp.publisher or "",
+                        "icon_status": insp.icon_status.value,
+                    }
+                    for insp in initial_draft.inspirations
+                ],
+            }
 
     return templates.TemplateResponse("project.html", {
         "request": request,
         "project": project,
         "slides": slides,
-        "initial_draft": initial_draft,
-        "initial_preview_url": f"{base}/storage/{initial_draft.preview_asset_key}?v={initial_draft.edit_count}" if initial_draft and initial_draft.preview_asset_key else "",
+        "initial_draft_data": initial_draft_data,
+        "initial_preview_url": initial_preview_url,
     })
 
 
