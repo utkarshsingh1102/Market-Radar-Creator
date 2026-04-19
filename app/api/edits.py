@@ -30,6 +30,14 @@ async def patch_fields(draft_id: UUID, patch: FieldPatch, request: Request):
                 if "publisher" in item:
                     draft.inspirations[idx].publisher = item["publisher"]
 
+    # Screenshot transform overrides
+    if patch.ss_x is not None:
+        draft.ss_x = patch.ss_x
+    if patch.ss_y is not None:
+        draft.ss_y = patch.ss_y
+    if patch.ss_width is not None:
+        draft.ss_width = patch.ss_width
+
     draft = await orchestrator.update_draft(draft)
     base = str(request.base_url).rstrip("/")
     return {

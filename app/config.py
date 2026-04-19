@@ -83,8 +83,8 @@ class DesignTokens:
         return self._data
 
 
-@lru_cache(maxsize=1)
 def load_tokens(path: Path = TOKENS_PATH) -> DesignTokens:
+    """Always reads fresh from disk so token edits take effect without restart."""
     with open(path) as f:
         data = yaml.safe_load(f)
     return DesignTokens(data)
@@ -95,6 +95,6 @@ def get_settings() -> Settings:
     return Settings()
 
 
-# Convenience singletons used by the rest of the app
-tokens: DesignTokens = load_tokens()
+# settings is a true singleton; tokens are reloaded per render via load_tokens()
 settings: Settings = get_settings()
+tokens: DesignTokens = load_tokens()  # initial load for import compatibility

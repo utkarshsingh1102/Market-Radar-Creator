@@ -31,23 +31,40 @@ def _title_case(text: str) -> str:
     return " ".join(result)
 
 
-def _rounded_icon(icon_img: Image.Image, size: int, radius: int) -> Image.Image:
-    """Resize icon to square and apply rounded corners — no white border or padding."""
+def _rounded_icon(icon_img: Image.Image, size: int, radius: int, border: int = 2, border_color: str = "#000000") -> Image.Image:
+    """Resize icon to square and apply rounded corners with a border."""
     icon_resized = icon_img.convert("RGBA").resize((size, size), Image.LANCZOS)
-    # Rounded mask
+    # Rounded mask for icon content
     mask = Image.new("L", (size, size), 0)
     ImageDraw.Draw(mask).rounded_rectangle([0, 0, size - 1, size - 1], radius=radius, fill=255)
     result = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     result.paste(icon_resized, mask=mask)
+    # Draw border on top
+    if border > 0:
+        bd = ImageDraw.Draw(result)
+        bd.rounded_rectangle(
+            [0, 0, size - 1, size - 1],
+            radius=radius,
+            outline=border_color,
+            width=border,
+        )
     return result
 
 
-def _placeholder_icon(size: int, radius: int, color: str = "#CCCCCC") -> Image.Image:
+def _placeholder_icon(size: int, radius: int, color: str = "#CCCCCC", border: int = 2, border_color: str = "#000000") -> Image.Image:
     tile = Image.new("RGBA", (size, size), color)
     mask = Image.new("L", (size, size), 0)
     ImageDraw.Draw(mask).rounded_rectangle([0, 0, size - 1, size - 1], radius=radius, fill=255)
     result = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     result.paste(tile, mask=mask)
+    if border > 0:
+        bd = ImageDraw.Draw(result)
+        bd.rounded_rectangle(
+            [0, 0, size - 1, size - 1],
+            radius=radius,
+            outline=border_color,
+            width=border,
+        )
     return result
 
 

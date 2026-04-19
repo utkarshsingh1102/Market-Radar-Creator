@@ -24,7 +24,7 @@
   flex-shrink: 0;
   width: 80px; height: 80px;
   border-radius: 6px;
-  overflow: hidden;
+  overflow: visible;
   cursor: pointer;
   border: 2px solid transparent;
   position: relative;
@@ -32,11 +32,12 @@
 }
 .slide-thumb:hover { border-color: #555; }
 .slide-thumb.active { border-color: var(--yellow); }
-.slide-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.slide-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; border-radius: 4px; }
 .slide-thumb .slide-bg {
   width: 100%; height: 100%;
   background-image: url('/assets/background/market_radar_bg.png');
   background-size: cover;
+  border-radius: 4px;
 }
 .slide-num {
   position: absolute; bottom: 3px; left: 0; right: 0;
@@ -122,6 +123,34 @@
               <input type="file" accept="image/*" style="display:none" @change="replaceImage($event,'main_screenshot')" />
             </label>
           </div>
+
+          <!-- Screenshot transform sliders -->
+          <div class="field">
+            <label style="display:flex;justify-content:space-between">
+              <span>X Position</span>
+              <span x-text="transform.x" style="color:#aaa;font-size:11px"></span>
+            </label>
+            <input type="range" min="400" max="900" step="2"
+              x-model.number="transform.x" @change="saveTransform()" @input="transform.x = parseInt($event.target.value)" style="width:100%" />
+          </div>
+          <div class="field">
+            <label style="display:flex;justify-content:space-between">
+              <span>Y Position</span>
+              <span x-text="transform.y" style="color:#aaa;font-size:11px"></span>
+            </label>
+            <input type="range" min="40" max="400" step="2"
+              x-model.number="transform.y" @change="saveTransform()" @input="transform.y = parseInt($event.target.value)" style="width:100%" />
+          </div>
+          <div class="field">
+            <label style="display:flex;justify-content:space-between">
+              <span>Width</span>
+              <span x-text="transform.width" style="color:#aaa;font-size:11px"></span>
+            </label>
+            <input type="range" min="200" max="600" step="4"
+              x-model.number="transform.width" @change="saveTransform()" @input="transform.width = parseInt($event.target.value)" style="width:100%" />
+          </div>
+          <button class="btn btn-secondary" style="width:100%;font-size:11px;padding:5px 0;margin-top:2px"
+            @click="resetTransform()">Reset Position &amp; Size</button>
         </div>
       </div>
 
@@ -227,6 +256,8 @@
         <div class="slide-bg"></div>
       </template>
       <div class="slide-num" x-text="i + 1"></div>
+      <!-- Delete button — shown on hover -->
+      <button class="slide-delete-btn" @click.stop="deleteSlide(slide.id, i)" title="Delete slide">✕</button>
     </div>
   </template>
 
@@ -245,6 +276,26 @@
 
 <style>
 .preview-loading { opacity: .4; transition: opacity .3s; }
+
+.slide-delete-btn {
+  display: none;
+  position: absolute;
+  top: -6px; right: -6px;
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  border: 2px solid #161616;
+  background: #e03030;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  z-index: 100;
+}
+.slide-thumb:hover .slide-delete-btn { display: flex; }
 </style>
 
 <script>
@@ -258,6 +309,11 @@ function editDraft(draftId, initialPreview) {
     screenshotPreview: null,
     iconPreviews: {},
     sections: { mainGame: true, inspirations: true },
+    transform: {
+      x: {{ draft.ss_x if draft.ss_x is not none else 566 }},
+      y: {{ draft.ss_y if draft.ss_y is not none else 88 }},
+      width: {{ draft.ss_width if draft.ss_width is not none else 466 }},
+    },
     fields: {
       game_name: {{ draft.game_name | tojson }},
       publisher: {{ (draft.publisher or '') | tojson }},
@@ -341,6 +397,45 @@ function editDraft(draftId, initialPreview) {
       } finally { this.saving = false; }
     },
 
+    async saveTransform() {
+      this.saving = true; this._setMsg('Applying…');
+      try {
+        const r = await fetch(`/drafts/${this.draftId}/fields`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ss_x: parseInt(this.transform.x),
+            ss_y: parseInt(this.transform.y),
+            ss_width: parseInt(this.transform.width),
+          })
+        });
+        const d = await r.json();
+        if (r.ok) {
+          this.editCount = d.edit_count;
+          this.previewUrl = d.preview_url;
+          this._syncSlidePreview(d.preview_url);
+          this._setMsg('Done ✓', 2000);
+          document.getElementById('ec-badge').textContent = 'v' + d.edit_count;
+        }
+      } finally { this.saving = false; }
+    },
+
+    async resetTransform() {
+      this.transform = { x: 566, y: 88, width: 466 };
+      const r = await fetch(`/drafts/${this.draftId}/fields`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ss_x: 566, ss_y: 88, ss_width: 466 })
+      });
+      const d = await r.json();
+      if (r.ok) {
+        this.editCount = d.edit_count;
+        this.previewUrl = d.preview_url;
+        this._syncSlidePreview(d.preview_url);
+        document.getElementById('ec-badge').textContent = 'v' + d.edit_count;
+      }
+    },
+
     async regenerate() {
       this.saving = true; this._setMsg('Re-rendering…');
       try {
@@ -403,6 +498,26 @@ function slideStrip(currentDraftId) {
       if (draftId === this.activeDraftId) return;
       this._save();
       window.location.href = `/drafts/${draftId}/edit`;
+    },
+
+    async deleteSlide(draftId, index) {
+      if (this.slides.length <= 1) {
+        alert('Cannot delete the only slide. Add another slide first.');
+        return;
+      }
+      if (!confirm('Delete this slide? This cannot be undone.')) return;
+
+      // Call DELETE API
+      await fetch(`/drafts/${draftId}`, { method: 'DELETE' });
+
+      // Remove from local list
+      this.slides.splice(index, 1);
+      this._save();
+
+      // If we deleted the active slide, navigate to the first remaining slide
+      if (draftId === this.activeDraftId) {
+        window.location.href = `/drafts/${this.slides[0].id}/edit`;
+      }
     },
 
     async addSlide() {

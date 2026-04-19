@@ -1,101 +1,50 @@
 """
-Phone mockup component.
-Composites a screenshot inside an iPhone frame on the right side of the canvas.
-If no frame asset is provided, draws a clean programmatic phone outline.
+Screenshot card component.
+Renders the game screenshot as a rounded rectangle with a black stroke
+on the right side of the canvas — no phone frame.
 """
 from __future__ import annotations
 
 from io import BytesIO
-from pathlib import Path
 from typing import Any
 
-from PIL import Image, ImageDraw, ImageFilter
-
-
-def _draw_phone_frame(
-    size: tuple[int, int],
-    corner_radius: int,
-    frame_color: str = "#1A1A1A",
-    frame_width: int = 12,
-    notch: bool = True,
-) -> Image.Image:
-    """
-    Draw a programmatic iPhone-style frame when no frame asset is available.
-    Returns an RGBA image of the given size.
-    """
-    w, h = size
-    frame_img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-    d = ImageDraw.Draw(frame_img)
-
-    # Outer rounded rect (the phone body)
-    d.rounded_rectangle([0, 0, w - 1, h - 1], radius=corner_radius, fill=frame_color)
-
-    # Inner screen area (white background cut-out)
-    inset = frame_width
-    screen_r = max(corner_radius - inset, 8)
-    d.rounded_rectangle(
-        [inset, inset, w - 1 - inset, h - 1 - inset],
-        radius=screen_r,
-        fill=(255, 255, 255, 255),
-    )
-
-    # Dynamic Island (notch) — centered top
-    if notch:
-        notch_w = int(w * 0.28)
-        notch_h = int(h * 0.022)
-        notch_x = (w - notch_w) // 2
-        notch_y = inset + 6
-        d.rounded_rectangle(
-            [notch_x, notch_y, notch_x + notch_w, notch_y + notch_h],
-            radius=notch_h // 2,
-            fill=frame_color,
-        )
-
-    return frame_img
+from PIL import Image, ImageDraw
 
 
 def render(img: Image.Image, tokens: Any, ctx: dict) -> None:
     pm = tokens.get("layout", "phone_mockup")
-    assets_root = Path(ctx.get("assets_root", "assets"))
 
+    # Token defaults — overridden per-draft via ctx["screenshot_transform"]
     x_start: int = pm["x_start"]
     y_start: int = pm["y_start"]
-    phone_w: int = pm["width"]
-    corner_r: int = pm.get("corner_radius", 48)
-    screen_inset_top: int = pm.get("screen_inset_top", 80)
-    screen_inset_bottom: int = pm.get("screen_inset_bottom", 40)
-    screen_inset_sides: int = pm.get("screen_inset_sides", 20)
+    card_w: int = pm["width"]
+    corner_r: int = pm.get("screenshot_corner_radius", 40)
+    stroke: int = pm.get("screenshot_stroke", 6)
+    bottom_margin: int = pm.get("bottom_margin", 40)
 
-    # Phone height: fill remaining canvas height with small bottom margin
-    phone_h = tokens.canvas_height - y_start - 40
+    # Per-draft overrides passed in from the orchestrator
+    xform: dict = ctx.get("screenshot_transform", {})
+    if xform.get("x") is not None:
+        x_start = xform["x"]
+    if xform.get("y") is not None:
+        y_start = xform["y"]
+    if xform.get("width") is not None:
+        card_w = xform["width"]
+
+    card_h = tokens.canvas_height - y_start - bottom_margin
 
     screenshot_data: bytes | None = ctx.get("screenshot_bytes")
 
-    # ── Load or draw frame ───────────────────────────────────────────────────
-    frame_asset_rel = pm.get("frame_asset", "")
-    frame_path = assets_root / frame_asset_rel.replace("assets/", "") if frame_asset_rel else None
-
-    if frame_path and frame_path.exists():
-        frame_img = (
-            Image.open(frame_path)
-            .convert("RGBA")
-            .resize((phone_w, phone_h), Image.LANCZOS)
-        )
-    else:
-        frame_img = _draw_phone_frame((phone_w, phone_h), corner_r)
-
-    # ── Screenshot inside frame ──────────────────────────────────────────────
-    screen_x = screen_inset_sides
-    screen_y = screen_inset_top
-    screen_w = phone_w - screen_inset_sides * 2
-    screen_h = phone_h - screen_inset_top - screen_inset_bottom
+    # ── Build card image ─────────────────────────────────────────────────────
+    card = Image.new("RGBA", (card_w, card_h), (0, 0, 0, 0))
 
     if screenshot_data:
         try:
             ss = Image.open(BytesIO(screenshot_data)).convert("RGBA")
-            # Crop to fill screen area (center crop)
+
+            # Center-crop to fill the card exactly
             ss_ratio = ss.width / ss.height
-            target_ratio = screen_w / screen_h
+            target_ratio = card_w / card_h
             if ss_ratio > target_ratio:
                 new_h = ss.height
                 new_w = int(new_h * target_ratio)
@@ -106,10 +55,28 @@ def render(img: Image.Image, tokens: Any, ctx: dict) -> None:
                 new_h = int(new_w / target_ratio)
                 top = (ss.height - new_h) // 2
                 ss = ss.crop((0, top, new_w, top + new_h))
-            ss = ss.resize((screen_w, screen_h), Image.LANCZOS)
-            frame_img.paste(ss, (screen_x, screen_y))
-        except Exception:
-            pass  # leave screen empty if screenshot fails
 
-    # ── Paste phone onto canvas ──────────────────────────────────────────────
-    img.paste(frame_img, (x_start, y_start), frame_img)
+            ss = ss.resize((card_w, card_h), Image.LANCZOS)
+
+            # Apply rounded-corner mask to screenshot
+            mask = Image.new("L", (card_w, card_h), 0)
+            ImageDraw.Draw(mask).rounded_rectangle(
+                [0, 0, card_w - 1, card_h - 1], radius=corner_r, fill=255
+            )
+            card.paste(ss, (0, 0))
+            card.putalpha(mask)
+        except Exception:
+            pass  # leave card transparent if screenshot fails
+
+    # ── Draw black stroke on top ─────────────────────────────────────────────
+    if stroke > 0:
+        bd = ImageDraw.Draw(card)
+        bd.rounded_rectangle(
+            [0, 0, card_w - 1, card_h - 1],
+            radius=corner_r,
+            outline="#000000",
+            width=stroke,
+        )
+
+    # ── Paste card onto canvas ───────────────────────────────────────────────
+    img.paste(card, (x_start, y_start), card)

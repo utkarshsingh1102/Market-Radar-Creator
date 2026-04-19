@@ -291,6 +291,11 @@ class Orchestrator:
             "inspirations": inspirations_ctx,
             "screenshot_bytes": screenshot_bytes,
             "assets_root": str(settings.assets_root),
+            "screenshot_transform": {
+                "x": draft.ss_x,
+                "y": draft.ss_y,
+                "width": draft.ss_width,
+            },
         }
         return render(ctx, tokens)
 

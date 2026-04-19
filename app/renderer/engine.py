@@ -17,7 +17,7 @@ from typing import Any
 
 from PIL import Image
 
-from app.config import tokens as default_tokens
+from app.config import load_tokens
 from app.renderer.components import header, inspirations, phone, title
 
 
@@ -26,8 +26,8 @@ def render(ctx: dict, tokens: Any = None, output_path: Path | None = None) -> by
     Render a 1080×1080 PNG from ctx.
     Returns raw PNG bytes. Optionally writes to output_path.
     """
-    if tokens is None:
-        tokens = default_tokens
+    # Always reload tokens from disk so YAML edits take effect without restart
+    tokens = load_tokens()
 
     # Ensure assets_root is set
     if "assets_root" not in ctx:

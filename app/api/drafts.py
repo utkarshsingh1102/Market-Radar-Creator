@@ -37,3 +37,12 @@ async def get_draft(draft_id: UUID, request: Request):
     if not draft:
         raise HTTPException(status_code=404, detail="Draft not found")
     return _draft_to_response(draft, request)
+
+
+@router.delete("/{draft_id}", status_code=204)
+async def delete_draft(draft_id: UUID, request: Request):
+    store = request.app.state.store
+    prefix = f"drafts/{draft_id}/"
+    # Delete all assets under this draft's folder
+    await store.delete_prefix(prefix)
+    return

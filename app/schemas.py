@@ -127,6 +127,11 @@ class DraftState(BaseModel):
 
     preview_asset_key: str | None = None
 
+    # Per-draft screenshot position/size overrides (None = use design_tokens defaults)
+    ss_x: int | None = None
+    ss_y: int | None = None
+    ss_width: int | None = None
+
 
 # ── Edit payloads ─────────────────────────────────────────────────────────────
 
@@ -134,6 +139,9 @@ class FieldPatch(BaseModel):
     game_name: str | None = None
     publisher: str | None = None
     inspirations: list[dict] | None = None   # partial inspiration updates keyed by index
+    ss_x: int | None = None
+    ss_y: int | None = None
+    ss_width: int | None = None
 
 
 # ── API responses ─────────────────────────────────────────────────────────────
