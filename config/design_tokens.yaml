@@ -63,7 +63,7 @@ layout:
     underline_thickness: 4
     underline_margin_top: 14
     underline_width: 460
-    publisher_margin_top: 12
+    publisher_margin_top: 20
   left_column:
     x_start: 52
     x_end: 520

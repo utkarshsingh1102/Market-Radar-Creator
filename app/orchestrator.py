@@ -118,18 +118,38 @@ class Orchestrator:
 
         # Fetch main game metadata from Play Store
         loop = asyncio.get_event_loop()
+        screenshot_url: str | None = None
         try:
             app_info = await loop.run_in_executor(
                 None, functools.partial(_gplay_app, app_id)
             )
             game_name = app_info.get("title", app_id)
             publisher = app_info.get("developer", None)
+            # Use the first gameplay screenshot as the slide screenshot
+            screenshots = app_info.get("screenshots", [])
+            if screenshots:
+                screenshot_url = screenshots[0]
         except Exception as exc:
             logger.warning("Play Store app lookup failed for %r: %s", app_id, exc)
             game_name = app_id
             publisher = None
 
         draft_id = uuid.uuid4()
+
+        # Download the Play Store screenshot
+        screenshot_key: str | None = None
+        if screenshot_url:
+            try:
+                import httpx
+                async with httpx.AsyncClient(timeout=15) as client:
+                    r = await client.get(screenshot_url)
+                    r.raise_for_status()
+                    screenshot_key = f"drafts/{draft_id}/screenshot.png"
+                    await self._store.put(screenshot_key, r.content)
+                    logger.info("Fetched Play Store screenshot for %r", app_id)
+            except Exception as exc:
+                logger.warning("Screenshot download failed for %r: %s", app_id, exc)
+                screenshot_key = None
 
         insps: list[InspirationDraft] = []
         for i, insp_data in enumerate(inspirations_data):
@@ -166,7 +186,7 @@ class Orchestrator:
             id=draft_id,
             game_name=game_name,
             publisher=publisher,
-            screenshot_asset_key=None,
+            screenshot_asset_key=screenshot_key,
             inspirations=insps,
         )
         await self._render_and_save(draft)

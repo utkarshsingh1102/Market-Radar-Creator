@@ -41,7 +41,7 @@ def render(img: Image.Image, tokens: Any, ctx: dict) -> None:
     # Measure line height
     sample_bbox = title_font.getbbox("A")
     line_h = sample_bbox[3] - sample_bbox[1]
-    line_gap = int(line_h * 0.10)  # tight leading
+    line_gap = int(line_h * 0.20)  # comfortable leading between title lines
 
     # Draw each title line
     y = top

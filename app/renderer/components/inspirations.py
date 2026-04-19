@@ -13,6 +13,23 @@ from PIL import Image, ImageDraw, ImageOps
 from app.renderer.layout import compute_layout
 from app.renderer.text_fit import _load_font, measure_text
 
+# Words that should stay lowercase in title case (unless first word)
+_LOWERCASE_WORDS = {"a", "an", "the", "and", "or", "but", "of", "in", "on", "at", "by", "for"}
+
+
+def _title_case(text: str) -> str:
+    """Capitalise first letter of each word, keeping small connector words lowercase."""
+    if not text:
+        return text
+    words = text.split()
+    result = []
+    for i, word in enumerate(words):
+        if i == 0 or word.lower() not in _LOWERCASE_WORDS:
+            result.append(word.capitalize())
+        else:
+            result.append(word.lower())
+    return " ".join(result)
+
 
 def _rounded_icon(icon_img: Image.Image, size: int, radius: int) -> Image.Image:
     """Resize icon to square and apply rounded corners — no white border or padding."""
@@ -76,8 +93,9 @@ def render(img: Image.Image, tokens: Any, ctx: dict) -> None:
         img.paste(tile, (icon_x, icon_y), tile)
 
         # Draw text to the right of icon
-        name_text = insp.get("name", "")
-        publisher_text = insp.get("publisher", "")
+        name_text = _title_case(insp.get("name", ""))
+        raw_pub = insp.get("publisher", "")
+        publisher_text = f"by {raw_pub}" if raw_pub else ""
 
         name_bbox = name_font.getbbox(name_text) if name_text else (0, 0, 0, 0)
         pub_bbox = pub_font.getbbox(publisher_text) if publisher_text else (0, 0, 0, 0)
