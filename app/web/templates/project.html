@@ -56,6 +56,60 @@ body.studio-mode { overflow: hidden; }
   font-size: 13px; color: #ccc; font-weight: 600;
   max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+
+/* ── x-cloak ─────────────────────────────────────────────────────────────── */
+[x-cloak] { display: none !important; }
+
+/* ── Download modal ──────────────────────────────────────────────────────── */
+.dl-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,.65); z-index: 900;
+  display: flex; align-items: center; justify-content: center;
+}
+.dl-modal {
+  background: #1a1a1a; border: 1px solid #333; border-radius: 12px;
+  padding: 28px 28px 24px; width: 400px; max-width: 92vw;
+  box-shadow: 0 20px 60px rgba(0,0,0,.6);
+}
+.dl-modal h3 { margin: 0 0 20px; font-size: 15px; color: #eee; font-weight: 700; }
+.dl-format-row { display: flex; gap: 8px; margin-bottom: 20px; }
+.dl-fmt-btn {
+  flex: 1; padding: 10px; border-radius: 8px; border: 1.5px solid #333;
+  background: #111; color: #aaa; font-size: 13px; font-weight: 600; cursor: pointer;
+  transition: all .12s;
+}
+.dl-fmt-btn.active { border-color: var(--yellow); color: var(--yellow); background: #201e10; }
+.dl-slides-box {
+  border: 1px solid #2a2a2a; border-radius: 8px; overflow: hidden; margin-bottom: 20px;
+}
+.dl-slide-row {
+  display: flex; align-items: center; gap: 10px; padding: 9px 12px;
+  border-bottom: 1px solid #222; cursor: pointer; transition: background .1s;
+}
+.dl-slide-row:last-child { border-bottom: none; }
+.dl-slide-row:hover { background: #222; }
+.dl-slide-row input[type=checkbox] { width: 15px; height: 15px; accent-color: var(--yellow); cursor: pointer; }
+.dl-slide-thumb {
+  width: 34px; height: 34px; border-radius: 4px; object-fit: cover; flex-shrink: 0; background: #333;
+}
+.dl-slide-label { font-size: 12px; color: #ccc; flex: 1; }
+.dl-slide-label span { display: block; font-size: 10px; color: #555; margin-top: 1px; }
+.dl-select-all-row {
+  display: flex; align-items: center; gap: 10px; padding: 9px 12px;
+  background: #161616; border-bottom: 1px solid #2a2a2a; cursor: pointer;
+}
+.dl-select-all-row input[type=checkbox] { width: 15px; height: 15px; accent-color: var(--yellow); cursor: pointer; }
+.dl-select-all-label { font-size: 12px; font-weight: 700; color: #fff; }
+.dl-actions { display: flex; gap: 8px; }
+.dl-cancel-btn {
+  flex: 1; padding: 10px; border-radius: 8px; border: 1.5px solid #333;
+  background: transparent; color: #aaa; font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.dl-download-btn {
+  flex: 2; padding: 10px; border-radius: 8px; border: none;
+  background: var(--yellow); color: #000; font-size: 13px; font-weight: 700; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+}
+.dl-download-btn:disabled { opacity: .5; cursor: not-allowed; }
 </style>
 {% endblock %}
 
@@ -67,7 +121,8 @@ body.studio-mode { overflow: hidden; }
 {% block topbar_right %}
   <span class="saving-indicator" id="save-msg" style="font-size:12px;color:#888"></span>
   <a href="/" class="btn btn-secondary" style="font-size:12px;padding:6px 12px">← Projects</a>
-  <a id="export-btn" href="#" class="btn btn-yellow" download style="font-size:12px">⬇ Export PNG</a>
+  <button class="btn btn-yellow" style="font-size:12px"
+          onclick="document.dispatchEvent(new CustomEvent('open-download-modal'))">⬇ Download</button>
 {% endblock %}
 
 {% block body %}
@@ -84,7 +139,8 @@ window.__projectInit__ = {
 };
 </script>
 
-<div class="studio" x-data="projectEditor()" x-init="init()">
+<div class="studio" x-data="projectEditor()" x-init="init()"
+     @open-download-modal.document="openDownloadModal()">
 
   <!-- ══ Sidebar ══════════════════════════════════════════════════════════════ -->
   <aside class="sidebar" style="display:flex;flex-direction:column;overflow:hidden">
@@ -211,6 +267,62 @@ window.__projectInit__ = {
 
   </aside>
 
+  <!-- ══ Download modal ═══════════════════════════════════════════════════════ -->
+  <div class="dl-overlay" x-show="dlModal.open" x-cloak @click.self="dlModal.open = false">
+    <div class="dl-modal" @click.stop>
+      <h3>⬇ Download Slides</h3>
+
+      <!-- Format toggle -->
+      <div class="dl-format-row">
+        <button class="dl-fmt-btn" :class="dlModal.format === 'png' ? 'active' : ''"
+                @click="dlModal.format = 'png'">PNG</button>
+        <button class="dl-fmt-btn" :class="dlModal.format === 'pdf' ? 'active' : ''"
+                @click="dlModal.format = 'pdf'">PDF</button>
+      </div>
+
+      <!-- Slide checklist -->
+      <div class="dl-slides-box">
+        <!-- Select All row -->
+        <label class="dl-select-all-row">
+          <input type="checkbox" :checked="dlAllSelected" @change="dlToggleAll($event.target.checked)" />
+          <span class="dl-select-all-label">Select All</span>
+        </label>
+        <!-- Individual slides -->
+        <template x-for="(slide, idx) in slides" :key="slide.draft_id">
+          <label class="dl-slide-row">
+            <input type="checkbox" :value="slide.draft_id"
+                   :checked="dlModal.selected.includes(slide.draft_id)"
+                   @change="dlToggleSlide(slide.draft_id, $event.target.checked)" />
+            <template x-if="slide.preview_url">
+              <img :src="slide.preview_url" class="dl-slide-thumb" />
+            </template>
+            <template x-if="!slide.preview_url">
+              <div class="dl-slide-thumb" style="background:#222;border-radius:4px"></div>
+            </template>
+            <div class="dl-slide-label">
+              <span x-text="'Slide ' + (idx + 1) + ' — ' + (slide.title || 'Untitled')"></span>
+            </div>
+          </label>
+        </template>
+      </div>
+
+      <!-- Action buttons -->
+      <div class="dl-actions">
+        <button class="dl-cancel-btn" @click="dlModal.open = false">Cancel</button>
+        <button class="dl-download-btn"
+                :disabled="dlModal.selected.length === 0 || dlModal.downloading"
+                @click="downloadSelected()">
+          <template x-if="dlModal.downloading">
+            <span class="spinner" style="width:14px;height:14px;border-color:#000;border-top-color:transparent"></span>
+          </template>
+          <template x-if="!dlModal.downloading">
+            <span x-text="'Download ' + dlModal.selected.length + ' slide' + (dlModal.selected.length === 1 ? '' : 's') + ' (' + dlModal.format.toUpperCase() + ')'"></span>
+          </template>
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- ══ Canvas area ══════════════════════════════════════════════════════════ -->
   <div class="canvas-area">
     <div class="canvas-wrap">
@@ -263,6 +375,7 @@ function projectEditor() {
     addingSlide: false,
     screenshotPreview: null,
     sections: { mainGame: true, inspirations: true },
+    dlModal: { open: false, format: 'png', selected: [], downloading: false },
     fields: (() => {
       const d = _init.initialDraft;
       if (!d) return { game_name: '', publisher: '', inspirations: [] };
@@ -450,7 +563,63 @@ function projectEditor() {
       const el = document.getElementById('save-msg');
       if (el) el.textContent = msg;
       if (clearAfter) setTimeout(() => { this.saveMsg = ''; if (el) el.textContent = ''; }, clearAfter);
-    }
+    },
+
+    /* ── Download modal ────────────────────────────────────────────────────── */
+    openDownloadModal() {
+      // Pre-select all slides
+      this.dlModal.selected = this.slides.map(s => s.draft_id);
+      this.dlModal.open = true;
+      this.dlModal.downloading = false;
+    },
+
+    dlToggleAll(checked) {
+      this.dlModal.selected = checked ? this.slides.map(s => s.draft_id) : [];
+    },
+
+    dlToggleSlide(draftId, checked) {
+      if (checked) {
+        if (!this.dlModal.selected.includes(draftId)) this.dlModal.selected.push(draftId);
+      } else {
+        this.dlModal.selected = this.dlModal.selected.filter(id => id !== draftId);
+      }
+    },
+
+    get dlAllSelected() {
+      return this.slides.length > 0 && this.dlModal.selected.length === this.slides.length;
+    },
+
+    async downloadSelected() {
+      if (!this.dlModal.selected.length) return;
+      this.dlModal.downloading = true;
+      try {
+        const resp = await fetch(`/api/projects/${this.projectId}/export`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            format: this.dlModal.format,
+            draft_ids: this.dlModal.selected,
+          }),
+        });
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          alert('Export failed: ' + (err.detail || resp.statusText));
+          return;
+        }
+        // Derive filename from Content-Disposition header or fallback
+        const cd = resp.headers.get('Content-Disposition') || '';
+        const match = cd.match(/filename="([^"]+)"/);
+        const filename = match ? match[1] : `market-radar-export.${this.dlModal.format === 'pdf' ? 'pdf' : (this.dlModal.selected.length > 1 ? 'zip' : 'png')}`;
+        const blob = await resp.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = filename; a.click();
+        URL.revokeObjectURL(url);
+        this.dlModal.open = false;
+      } finally {
+        this.dlModal.downloading = false;
+      }
+    },
   }
 }
 </script>
