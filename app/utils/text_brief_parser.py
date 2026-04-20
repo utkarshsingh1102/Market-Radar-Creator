@@ -29,6 +29,123 @@ from urllib.parse import parse_qs, urlparse
 
 
 @dataclass
+class StoreUrlInfo:
+    """
+    Parsed and cross-derived store URL info for a single game.
+
+    - For iOS games: numeric_id and slug are populated; appmagic_url is derivable.
+    - For Android games: package_id is populated; appmagic_android_url is derivable.
+    - Cross-platform (iOS ↔ Android) derivation is NOT possible from URLs alone
+      since they use different IDs — that requires a name-based lookup.
+    """
+    store_type: str           # "appstore" | "playstore" | "appmagic_ios" | "appmagic_android"
+    app_id: str               # canonical ID: "ios_<num>" or Play Store package name
+
+    # iOS-specific
+    numeric_id: str | None = None     # e.g. "6758454315"
+    slug: str | None = None           # e.g. "last-hero-idle-zombie-survive"
+
+    # Android-specific
+    package_id: str | None = None     # e.g. "idle.merge.battle.upgrade"
+
+    @property
+    def appstore_url(self) -> str | None:
+        if self.numeric_id and self.slug:
+            return f"https://apps.apple.com/us/app/{self.slug}/id{self.numeric_id}"
+        return None
+
+    @property
+    def playstore_url(self) -> str | None:
+        if self.package_id:
+            return f"https://play.google.com/store/apps/details?id={self.package_id}"
+        return None
+
+    @property
+    def appmagic_url(self) -> str | None:
+        """AppMagic URL — iOS variant."""
+        if self.numeric_id and self.slug:
+            return f"https://appmagic.rocks/ipad/{self.slug}/{self.numeric_id}"
+        return None
+
+    @property
+    def appmagic_android_url(self) -> str | None:
+        """AppMagic URL — Android variant."""
+        if self.package_id:
+            return f"https://appmagic.rocks/android/{self.package_id}"
+        return None
+
+    def all_urls(self) -> dict[str, str | None]:
+        return {
+            "appstore": self.appstore_url,
+            "playstore": self.playstore_url,
+            "appmagic_ios": self.appmagic_url,
+            "appmagic_android": self.appmagic_android_url,
+        }
+
+
+def parse_store_url(url: str) -> StoreUrlInfo:
+    """
+    Parse any supported store URL and return a StoreUrlInfo with all
+    derivable cross-platform links populated.
+
+    Supported inputs:
+      - https://apps.apple.com/us/app/<slug>/id<numeric_id>
+      - https://play.google.com/store/apps/details?id=<package>
+      - https://appmagic.rocks/ipad/<slug>/<numeric_id>
+      - https://appmagic.rocks/android/<package>
+    """
+    parsed = urlparse(url)
+    host = parsed.netloc.lower()
+
+    if "apple.com" in host:
+        m = re.search(r"/app/([^/]+)/id(\d+)", parsed.path)
+        if not m:
+            raise ValueError(f"Cannot parse App Store URL: {url!r}")
+        slug, numeric_id = m.group(1), m.group(2)
+        return StoreUrlInfo(
+            store_type="appstore",
+            app_id=f"ios_{numeric_id}",
+            numeric_id=numeric_id,
+            slug=slug,
+        )
+
+    if "play.google.com" in host:
+        qs = parse_qs(parsed.query)
+        pkg = (qs.get("id") or [""])[0]
+        if not pkg:
+            raise ValueError(f"Cannot parse Play Store URL: {url!r}")
+        return StoreUrlInfo(
+            store_type="playstore",
+            app_id=pkg,
+            package_id=pkg,
+        )
+
+    if "appmagic.rocks" in host:
+        # /ipad/<slug>/<numeric_id>  OR  /android/<package>
+        parts = [p for p in parsed.path.split("/") if p]
+        if len(parts) >= 1 and parts[0] == "android":
+            pkg = "/".join(parts[1:]) if len(parts) > 1 else ""
+            if not pkg:
+                raise ValueError(f"Cannot parse AppMagic Android URL: {url!r}")
+            return StoreUrlInfo(
+                store_type="appmagic_android",
+                app_id=pkg,
+                package_id=pkg,
+            )
+        if len(parts) >= 3 and parts[0] in ("ipad", "iphone", "ios"):
+            slug, numeric_id = parts[1], parts[2]
+            return StoreUrlInfo(
+                store_type="appmagic_ios",
+                app_id=f"ios_{numeric_id}",
+                numeric_id=numeric_id,
+                slug=slug,
+            )
+        raise ValueError(f"Cannot parse AppMagic URL: {url!r}")
+
+    raise ValueError(f"Unrecognised store URL: {url!r}")
+
+
+@dataclass
 class ParsedInspiration:
     name: str
     publisher: str | None  # None → treat as concept
@@ -197,8 +314,14 @@ def _parse_legacy(lines: list[str]) -> list[ParsedSlide]:
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+_STORE_HOSTS = ("apple.com", "play.google.com", "appmagic.rocks")
+
+
 def _is_url(s: str) -> bool:
-    return s.startswith("http://") or s.startswith("https://")
+    if not (s.startswith("http://") or s.startswith("https://")):
+        return False
+    host = urlparse(s).netloc.lower()
+    return any(h in host for h in _STORE_HOSTS)
 
 
 def _split_name_publisher(line: str) -> tuple[str, str | None]:
@@ -209,33 +332,17 @@ def _split_name_publisher(line: str) -> tuple[str, str | None]:
 
 
 def _classify_url(url: str, block_idx: int) -> tuple[str, str]:
-    parsed = urlparse(url)
-    host = parsed.netloc.lower()
-
-    if "apple.com" in host:
-        m = re.search(r"/id(\d+)", parsed.path)
-        if m:
-            return "appstore", f"ios_{m.group(1)}"
-        raise TextBriefParseError(
-            f"Block {block_idx}: could not extract iOS app id from: {url!r}"
-        )
-
-    if "play.google.com" in host:
-        qs = parse_qs(parsed.query)
-        ids = qs.get("id", [])
-        if ids:
-            return "playstore", ids[0]
-        m = re.search(r"[?&]id=([\w.]+)", url)
-        if m:
-            return "playstore", m.group(1)
-        raise TextBriefParseError(
-            f"Block {block_idx}: could not extract Play Store app id from: {url!r}"
-        )
-
-    raise TextBriefParseError(
-        f"Block {block_idx}: unrecognised store URL: {url!r}. "
-        "Expected apps.apple.com or play.google.com."
-    )
+    try:
+        info = parse_store_url(url)
+        # Normalise AppMagic types to their canonical store type
+        store_type = info.store_type
+        if store_type == "appmagic_ios":
+            store_type = "appstore"
+        elif store_type == "appmagic_android":
+            store_type = "playstore"
+        return store_type, info.app_id
+    except ValueError as exc:
+        raise TextBriefParseError(f"Block {block_idx}: {exc}") from exc
 
 
 def _parse_inspirations(line: str, block_idx: int) -> list[ParsedInspiration]:

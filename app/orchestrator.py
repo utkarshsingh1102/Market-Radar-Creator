@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import uuid
 from datetime import datetime
 from pathlib import Path  # noqa: F401 — used in _resolve_screenshot path source
@@ -15,6 +16,7 @@ from app.config import settings, tokens
 from app.renderer.engine import render
 from app.resolvers.combined import CombinedIconResolver
 from app.resolvers.concept import ConceptIconResolver
+from app.resolvers.iconify import IconifyResolver
 from app.resolvers.itunes import ItunesIconResolver
 from app.resolvers.playstore import PlayStoreIconResolver
 from app.resolvers.upload import UploadIconResolver
@@ -44,6 +46,7 @@ class Orchestrator:
         _playstore = PlayStoreIconResolver(store)
         self._icon_resolver = CombinedIconResolver(_itunes, _playstore)
         self._upload = UploadIconResolver(store)
+        self._iconify = IconifyResolver(store)
         self._concept = ConceptIconResolver(store)
 
     # ── Draft lifecycle ───────────────────────────────────────────────────────
@@ -191,8 +194,10 @@ class Orchestrator:
                         icon_status=IconStatus.needs_upload,
                     ))
             else:
-                # No publisher → concept icon
-                icon_bytes = await self._concept.resolve(name)
+                # No publisher → try Iconify, fall back to concept placeholder
+                icon_bytes = await self._iconify.resolve(name)
+                if not icon_bytes:
+                    icon_bytes = await self._concept.resolve(name)
                 key = f"drafts/{draft_id}/icon_{i}.png"
                 await self._store.put(key, icon_bytes)
                 insps.append(InspirationDraft(
@@ -244,6 +249,12 @@ class Orchestrator:
 
         # ── 2. Cache miss — scrape ────────────────────────────────────────────
         screenshot_url = await self._fetch_screenshot_url(app_id, store_type)
+
+        # ── 3. Store scrape failed — fall back to DDG image search ────────────
+        if not screenshot_url:
+            logger.info("Store scrape failed for %r, trying DDG image search", app_id)
+            screenshot_url = await self._search_screenshot_url(game_name)
+
         if not screenshot_url:
             logger.warning("No screenshot URL found for %r", app_id)
             return None
@@ -350,11 +361,85 @@ class Orchestrator:
                 screenshots = app_info.get("screenshots", [])
                 if screenshots:
                     return screenshots[0]
-                logger.info("No screenshots found for Play Store app %r", app_id)
+                logger.info("No screenshots from scraper for %r, trying HTML fallback", app_id)
             except Exception as exc:
-                logger.warning("Play Store screenshot lookup failed for %r: %s", app_id, exc)
+                logger.warning("Play Store scraper failed for %r: %s — trying HTML fallback", app_id, exc)
+
+            # HTML fallback: fetch Play Store page and extract image URLs directly
+            try:
+                import httpx
+                async with httpx.AsyncClient(timeout=15, headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+                }) as client:
+                    r = await client.get(
+                        f"https://play.google.com/store/apps/details?id={app_id}",
+                        params={"hl": "en"},
+                    )
+                    r.raise_for_status()
+                    # Play Store embeds screenshot URLs as play-lh.googleusercontent.com with size suffix
+                    matches = re.findall(
+                        r'https://play-lh\.googleusercontent\.com/[A-Za-z0-9_\-]+=w\d+-h\d+',
+                        r.text,
+                    )
+                    # Filter out small icons (icons are typically square, screenshots are landscape)
+                    for url in matches:
+                        m = re.search(r'=w(\d+)-h(\d+)', url)
+                        if m:
+                            w, h = int(m.group(1)), int(m.group(2))
+                            if max(w, h) >= 400:
+                                # Bump to higher resolution
+                                hq_url = re.sub(r'=w\d+-h\d+', '=w1080-h1920', url)
+                                logger.info("Play Store HTML screenshot for %r: %s", app_id, hq_url)
+                                return hq_url
+            except Exception as exc:
+                logger.warning("Play Store HTML fallback failed for %r: %s", app_id, exc)
             return None
 
+        return None
+
+    async def _search_screenshot_url(self, game_name: str) -> str | None:
+        """
+        Fallback: search DuckDuckGo images for a game screenshot.
+        Tries landscape/gameplay shots, skips tiny thumbnails and icons.
+        """
+        import asyncio
+        import functools
+
+        queries = [
+            f"{game_name} mobile game screenshot gameplay",
+            f"{game_name} game screenshot",
+        ]
+
+        def _ddg_search(query: str) -> list[dict]:
+            try:
+                from duckduckgo_search import DDGS
+                with DDGS() as ddgs:
+                    return list(ddgs.images(query, max_results=15))
+            except Exception as exc:
+                logger.warning("DDG image search failed for %r: %s", query, exc)
+                return []
+
+        loop = asyncio.get_event_loop()
+        for query in queries:
+            results = await loop.run_in_executor(None, functools.partial(_ddg_search, query))
+            # Prefer tall portrait screenshots (mobile games are portrait)
+            for r in results:
+                url = r.get("image", "")
+                w = r.get("width", 0)
+                h = r.get("height", 0)
+                if url and h >= 500 and h > w:
+                    logger.info("DDG screenshot (portrait) for %r: %s", game_name, url)
+                    return url
+            # Accept any reasonably sized image
+            for r in results:
+                url = r.get("image", "")
+                w = r.get("width", 0)
+                h = r.get("height", 0)
+                if url and max(w, h) >= 400:
+                    logger.info("DDG screenshot (relaxed) for %r: %s", game_name, url)
+                    return url
+
+        logger.warning("DDG screenshot fallback found nothing for %r", game_name)
         return None
 
     async def create_empty_draft(self, game_name: str = "New Slide") -> DraftState:
@@ -426,7 +511,9 @@ class Orchestrator:
                 return icon_bytes, key, IconStatus.ok
             return None, None, IconStatus.needs_upload
         elif icon_src.source == "concept":
-            icon_bytes = await self._concept.resolve(icon_src.name)
+            icon_bytes = await self._iconify.resolve(icon_src.name)
+            if not icon_bytes:
+                icon_bytes = await self._concept.resolve(icon_src.name)
             key = f"drafts/{draft_id}/icon_{idx}.png"
             await self._store.put(key, icon_bytes)
             return icon_bytes, key, IconStatus.ok
