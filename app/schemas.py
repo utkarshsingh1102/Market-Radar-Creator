@@ -132,6 +132,10 @@ class DraftState(BaseModel):
     ss_y: int | None = None
     ss_width: int | None = None
 
+    # Store metadata — used to re-fetch screenshot if it failed on first attempt
+    store_app_id: str | None = None
+    store_type: str | None = None   # "appstore" | "playstore"
+
 
 # ── Edit payloads ─────────────────────────────────────────────────────────────
 

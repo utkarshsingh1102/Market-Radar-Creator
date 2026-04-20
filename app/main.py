@@ -9,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
 from app.api import drafts, edits, exports, uploads, projects as projects_api, validate as validate_api
+from app.cache import GameAssetCache
 from app.orchestrator import Orchestrator
 from app.storage.local import LocalAssetStore
 from app.web import routes
@@ -30,8 +31,11 @@ app = FastAPI(
 @app.on_event("startup")
 async def startup() -> None:
     store = LocalAssetStore(settings.storage_root)
+    cache = GameAssetCache(settings.storage_root / "game_cache" / "assets.db")
+    await cache.init()
     app.state.store = store
-    app.state.orchestrator = Orchestrator(store)
+    app.state.cache = cache
+    app.state.orchestrator = Orchestrator(store, cache)
     logger.info("Market Radar Forge started. Storage: %s", settings.storage_root)
 
 

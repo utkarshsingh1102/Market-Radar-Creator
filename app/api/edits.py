@@ -69,6 +69,14 @@ async def replace_image(
         key = f"drafts/{draft_id}/screenshot.png"
         await store.put(key, data, file.content_type or "image/png")
         draft.screenshot_asset_key = key
+        # Persist to game cache so future slides with same app reuse this image
+        if draft.store_app_id and draft.store_type:
+            await orchestrator.save_manual_screenshot(
+                app_id=draft.store_app_id,
+                game_name=draft.game_name,
+                store_type=draft.store_type,
+                img_bytes=data,
+            )
     elif slot.startswith("inspiration_") and slot.endswith("_icon"):
         parts = slot.split("_")
         try:

@@ -59,6 +59,9 @@ def compute_layout(n: int, tokens: Any) -> ColumnLayout:
     # N icon rows + (N-1) plus rows at 60% weight
     total_units = n + 0.6 * (n - 1)
     row_height = available_h / total_units
+    # Cap row height so rows stay compact when N is small (e.g. 2 inspirations)
+    max_row_height = 195
+    row_height = min(row_height, max_row_height)
     plus_row_height = row_height * 0.6
     icon_size = int(row_height * 0.80)
 
@@ -69,12 +72,17 @@ def compute_layout(n: int, tokens: Any) -> ColumnLayout:
     plus_size = int(plus_sizes.get(n, plus_sizes.get(str(n), 60)))
     x_icon_center = x_start + icon_size / 2
 
+    # Total height actually used — may be less than available_h when capped
+    used_h = row_height * n + plus_row_height * (n - 1)
+    # Vertically center the block within the available column space
+    y_offset = y_start + (available_h - used_h) / 2
+
     icon_rows: list[IconRow] = []
     plus_rows: list[PlusRow] = []
 
     for i in range(n):
         # y center of this icon row
-        y_center = y_start + row_height * i + plus_row_height * i + row_height / 2
+        y_center = y_offset + row_height * i + plus_row_height * i + row_height / 2
         text_x = x_start + icon_size + text_left_offset
         icon_rows.append(
             IconRow(
@@ -88,7 +96,7 @@ def compute_layout(n: int, tokens: Any) -> ColumnLayout:
 
         if i < n - 1:
             # y center of the plus between row i and i+1
-            plus_y = y_start + row_height * (i + 1) + plus_row_height * i + plus_row_height / 2
+            plus_y = y_offset + row_height * (i + 1) + plus_row_height * i + plus_row_height / 2
             plus_rows.append(PlusRow(y_center=plus_y, size=plus_size))
 
     return ColumnLayout(

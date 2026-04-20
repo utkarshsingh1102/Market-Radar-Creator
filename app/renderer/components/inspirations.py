@@ -13,6 +13,35 @@ from PIL import Image, ImageDraw, ImageOps
 from app.renderer.layout import compute_layout
 from app.renderer.text_fit import _load_font, measure_text
 
+
+def _wrap_text(text: str, font, max_width: int, max_lines: int = 3) -> list[str]:
+    """
+    Greedily wrap text into at most max_lines lines, each fitting within max_width.
+    Never truncates — last line gets as many words as possible.
+    """
+    if not text:
+        return []
+    words = text.split()
+    lines: list[str] = []
+    current: list[str] = []
+    for word in words:
+        trial = " ".join(current + [word])
+        w, _ = measure_text(font, trial)
+        if w <= max_width:
+            current.append(word)
+        else:
+            if current:
+                lines.append(" ".join(current))
+            current = [word]
+            if len(lines) >= max_lines - 1:
+                # Last allowed line — pack all remaining words in
+                remaining = " ".join(current + words[words.index(word) + 1:])
+                lines.append(remaining)
+                return lines
+    if current:
+        lines.append(" ".join(current))
+    return lines or [text]
+
 # Words that should stay lowercase in title case (unless first word)
 _LOWERCASE_WORDS = {"a", "an", "the", "and", "or", "but", "of", "in", "on", "at", "by", "for"}
 
@@ -110,39 +139,49 @@ def render(img: Image.Image, tokens: Any, ctx: dict) -> None:
         img.paste(tile, (icon_x, icon_y), tile)
 
         # Draw text to the right of icon
-        name_text = _title_case(insp.get("name", ""))
+        max_text_w = int(lc_cfg["x_end"]) - int(row.text_x)
+        name_lines = _wrap_text(_title_case(insp.get("name", "")), name_font, max_text_w, max_lines=3)
         raw_pub = insp.get("publisher", "")
-        publisher_text = f"by {raw_pub}" if raw_pub else ""
+        pub_lines = _wrap_text(f"by {raw_pub}", pub_font, max_text_w, max_lines=2) if raw_pub else []
 
-        name_bbox = name_font.getbbox(name_text) if name_text else (0, 0, 0, 0)
-        pub_bbox = pub_font.getbbox(publisher_text) if publisher_text else (0, 0, 0, 0)
+        # Measure line heights
+        sample_name_bbox = name_font.getbbox("Ag")
+        name_line_h = sample_name_bbox[3] - sample_name_bbox[1]
+        name_line_gap = 2
 
-        name_h = name_bbox[3] - name_bbox[1]
-        pub_h = pub_bbox[3] - pub_bbox[1]
-        text_gap = 6
+        sample_pub_bbox = pub_font.getbbox("Ag")
+        pub_line_h = sample_pub_bbox[3] - sample_pub_bbox[1]
+        pub_line_gap = 2
 
-        if publisher_text:
-            total_text_h = name_h + text_gap + pub_h
-        else:
-            total_text_h = name_h
+        block_gap = 6  # gap between name block and publisher block
+
+        total_name_h = len(name_lines) * name_line_h + max(0, len(name_lines) - 1) * name_line_gap
+        total_pub_h = len(pub_lines) * pub_line_h + max(0, len(pub_lines) - 1) * pub_line_gap
+        total_text_h = total_name_h + (block_gap + total_pub_h if pub_lines else 0)
 
         text_y_start = row.text_y_center - total_text_h / 2
 
-        if name_text:
+        y = text_y_start
+        for line in name_lines:
+            bbox = name_font.getbbox(line)
             draw.text(
-                (row.text_x - name_bbox[0], text_y_start - name_bbox[1]),
-                name_text,
+                (row.text_x - bbox[0], y - bbox[1]),
+                line,
                 font=name_font,
                 fill=colors["text_primary"],
             )
-        if publisher_text:
-            pub_y = text_y_start + name_h + text_gap
+            y += name_line_h + name_line_gap
+
+        y += block_gap - name_line_gap  # replace last line_gap with block_gap
+        for line in pub_lines:
+            bbox = pub_font.getbbox(line)
             draw.text(
-                (row.text_x - pub_bbox[0], pub_y - pub_bbox[1]),
-                publisher_text,
+                (row.text_x - bbox[0], y - bbox[1]),
+                line,
                 font=pub_font,
                 fill=colors["text_primary"],
             )
+            y += pub_line_h + pub_line_gap
 
     # Draw "+" separators
     for pr in layout.plus_rows:

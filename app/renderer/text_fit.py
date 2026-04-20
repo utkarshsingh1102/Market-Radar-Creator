@@ -28,6 +28,30 @@ def measure_text(font: ImageFont.FreeTypeFont, text: str) -> tuple[int, int]:
     return bbox[2] - bbox[0], bbox[3] - bbox[1]
 
 
+def _wrap_words(words: list[str], font: ImageFont.FreeTypeFont, max_width: int, max_lines: int) -> list[str] | None:
+    """
+    Greedily wrap words into at most max_lines lines, each fitting within max_width.
+    Returns list of line strings, or None if it doesn't fit.
+    """
+    lines: list[str] = []
+    current: list[str] = []
+    for word in words:
+        trial = " ".join(current + [word])
+        w, _ = measure_text(font, trial)
+        if w <= max_width:
+            current.append(word)
+        else:
+            if not current:
+                return None  # single word wider than max_width
+            lines.append(" ".join(current))
+            if len(lines) >= max_lines:
+                return None  # ran out of lines
+            current = [word]
+    if current:
+        lines.append(" ".join(current))
+    return lines if all(measure_text(font, l)[0] <= max_width for l in lines) else None
+
+
 def fit_title(
     text: str,
     font_path: Path | None,
@@ -35,43 +59,30 @@ def fit_title(
     max_width: int,
 ) -> tuple[list[str], ImageFont.FreeTypeFont]:
     """
-    Returns (lines, font) where lines is 1 or 2 strings.
-    Tries max size first, wraps on ': ' or space, steps down 4px if needed.
+    Returns (lines, font) where lines is 1–3 strings.
+    Tries max size first, wraps up to 3 lines, steps down 4px if needed.
+    As a true last resort truncates with ellipsis so text never overflows.
     """
     min_size, max_size = size_range[0], size_range[1]
+    words = text.split()
 
-    for size in range(max_size, min_size - 1, -4):
+    # Extended size range — go down to 28px before giving up
+    hard_min = min(min_size, 28)
+
+    for size in range(max_size, hard_min - 1, -2):
         font = _load_font(font_path, size)
 
-        # Try single line
+        # Try 1 line
         w, _ = measure_text(font, text)
         if w <= max_width:
             return [text], font
 
-        # Try wrapping at ': '
-        if ": " in text:
-            parts = text.split(": ", 1)
-            line1 = parts[0] + ":"
-            line2 = parts[1]
-            w1, _ = measure_text(font, line1)
-            w2, _ = measure_text(font, line2)
-            if w1 <= max_width and w2 <= max_width:
-                return [line1, line2], font
+        # Try 2 lines only — never go to 3
+        result = _wrap_words(words, font, max_width, 2)
+        if result:
+            return result, font
 
-        # Try wrapping at last space before midpoint
-        words = text.split()
-        if len(words) >= 2:
-            best_split = None
-            for i in range(1, len(words)):
-                l1 = " ".join(words[:i])
-                l2 = " ".join(words[i:])
-                w1, _ = measure_text(font, l1)
-                w2, _ = measure_text(font, l2)
-                if w1 <= max_width and w2 <= max_width:
-                    best_split = ([l1, l2], font)
-            if best_split:
-                return best_split
-
-    # Last resort: use min size, force single line
-    font = _load_font(font_path, min_size)
-    return [text], font
+    # Absolute last resort: 2 lines at hard_min size, best-effort split
+    font = _load_font(font_path, hard_min)
+    mid = len(words) // 2
+    return [" ".join(words[:mid]), " ".join(words[mid:])], font

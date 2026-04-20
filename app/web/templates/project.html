@@ -312,10 +312,17 @@ window.__projectInit__ = {
 
     <!-- Footer: re-render + JSON reload -->
     <div class="edit-panel-footer">
-      <button class="btn btn-secondary btn-full" @click="regenerate()" :disabled="saving">
-        <span x-show="saving" class="spinner"></span>
-        🔄 Re-render
-      </button>
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-secondary" style="flex:1;font-size:11px" @click="regenerate()" :disabled="saving || reRenderingAll">
+          <span x-show="saving && !reRenderingAll" class="spinner"></span>
+          🔄 Current
+        </button>
+        <button class="btn btn-secondary" style="flex:1;font-size:11px" @click="regenerateAll()" :disabled="saving || reRenderingAll">
+          <span x-show="reRenderingAll" class="spinner"></span>
+          <span x-show="reRenderingAll" x-text="'(' + reRenderProgress + '/' + slides.length + ')'"></span>
+          <span x-show="!reRenderingAll">🔄 All</span>
+        </button>
+      </div>
       <div class="json-reload-row">
         <span>Reload JSON:</span>
         <label>
@@ -461,6 +468,8 @@ function projectEditor() {
     saving: false,
     saveMsg: '',
     addingSlide: false,
+    reRenderingAll: false,
+    reRenderProgress: 0,
     screenshotPreview: null,
     sections: { mainGame: true, inspirations: true },
     dlModal: { open: false, format: 'png', selected: [], downloading: false },
@@ -576,6 +585,33 @@ function projectEditor() {
           this._setMsg('Done ✓', 2000);
         }
       } finally { this.saving = false; }
+    },
+
+    /* ── Regenerate all slides ──────────────────────────────────────────────── */
+    async regenerateAll() {
+      if (this.reRenderingAll || this.saving) return;
+      this.reRenderingAll = true;
+      this.reRenderProgress = 0;
+      this._setMsg('Re-rendering all…');
+      try {
+        for (const slide of this.slides) {
+          const r = await fetch(`/drafts/${slide.draft_id}/regenerate`, { method: 'POST' });
+          const d = await r.json();
+          if (r.ok) {
+            this._syncSlideTile(slide.draft_id, { preview_url: d.preview_url });
+            if (slide.draft_id === this.activeDraftId) {
+              this.activeEditCount = d.edit_count;
+              this.activePreviewUrl = d.preview_url;
+            }
+          }
+          this.reRenderProgress += 1;
+          this._setMsg(`Re-rendering… ${this.reRenderProgress}/${this.slides.length}`);
+        }
+        this._setMsg('All done ✓', 3000);
+      } finally {
+        this.reRenderingAll = false;
+        this.reRenderProgress = 0;
+      }
     },
 
     /* ── Delete slide ───────────────────────────────────────────────────────── */

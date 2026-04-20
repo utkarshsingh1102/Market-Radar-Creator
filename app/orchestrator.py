@@ -10,6 +10,7 @@ import uuid
 from datetime import datetime
 from pathlib import Path  # noqa: F401 — used in _resolve_screenshot path source
 
+from app.cache import GameAssetCache
 from app.config import settings, tokens
 from app.renderer.engine import render
 from app.resolvers.combined import CombinedIconResolver
@@ -36,8 +37,9 @@ def _gplay_app(app_id: str) -> dict:
 
 
 class Orchestrator:
-    def __init__(self, store: AssetStore) -> None:
+    def __init__(self, store: AssetStore, cache: GameAssetCache | None = None) -> None:
         self._store = store
+        self._cache = cache
         _itunes = ItunesIconResolver(store, settings.itunes_rate_limit)
         _playstore = PlayStoreIconResolver(store)
         self._icon_resolver = CombinedIconResolver(_itunes, _playstore)
@@ -84,6 +86,19 @@ class Orchestrator:
         """Re-render and re-persist an already-loaded draft."""
         draft.edit_count += 1
         draft.updated_at = datetime.utcnow()
+
+        # If screenshot was never fetched, try again now (cache or re-scrape)
+        if not draft.screenshot_asset_key and draft.store_app_id and draft.store_type:
+            logger.info("Screenshot missing for draft %s — retrying via cache/scrape", draft.id)
+            key = await self._get_or_fetch_screenshot(
+                app_id=draft.store_app_id,
+                store_type=draft.store_type,
+                game_name=draft.game_name,
+                draft_id=draft.id,
+            )
+            if key:
+                draft.screenshot_asset_key = key
+
         await self._render_and_save(draft)
         await self._persist_draft(draft)
         return draft
@@ -126,16 +141,10 @@ class Orchestrator:
         import functools
 
         publisher = game_publisher
-        screenshot_url: str | None = None
 
         if game_name:
             # New format — name/publisher already parsed from text
-            logger.info("Using explicit game name %r (no store metadata fetch)", game_name)
-            # Try to fetch a screenshot from the store URL
-            screenshot_url = await self._fetch_screenshot_url(
-                app_id=app_id,
-                store_type=store_type or "unknown",
-            )
+            logger.info("Using explicit game name %r", game_name)
         else:
             # Legacy format — fetch metadata from Play Store
             loop = asyncio.get_event_loop()
@@ -145,9 +154,6 @@ class Orchestrator:
                 )
                 game_name = app_info.get("title", app_id)
                 publisher = app_info.get("developer", None)
-                screenshots = app_info.get("screenshots", [])
-                if screenshots:
-                    screenshot_url = screenshots[0]
             except Exception as exc:
                 logger.warning("Play Store app lookup failed for %r: %s", app_id, exc)
                 game_name = app_id
@@ -155,20 +161,13 @@ class Orchestrator:
 
         draft_id = uuid.uuid4()
 
-        # Download the store screenshot
-        screenshot_key: str | None = None
-        if screenshot_url:
-            try:
-                import httpx
-                async with httpx.AsyncClient(timeout=15) as client:
-                    r = await client.get(screenshot_url)
-                    r.raise_for_status()
-                    screenshot_key = f"drafts/{draft_id}/screenshot.png"
-                    await self._store.put(screenshot_key, r.content)
-                    logger.info("Fetched screenshot for %r", app_id)
-            except Exception as exc:
-                logger.warning("Screenshot download failed for %r: %s", app_id, exc)
-                screenshot_key = None
+        # Fetch screenshot — checks cache first, scrapes + caches on miss
+        screenshot_key = await self._get_or_fetch_screenshot(
+            app_id=app_id,
+            store_type=store_type or "unknown",
+            game_name=game_name,
+            draft_id=draft_id,
+        )
 
         insps: list[InspirationDraft] = []
         for i, insp_data in enumerate(inspirations_data):
@@ -207,10 +206,102 @@ class Orchestrator:
             publisher=publisher,
             screenshot_asset_key=screenshot_key,
             inspirations=insps,
+            store_app_id=app_id,
+            store_type=store_type,
         )
         await self._render_and_save(draft)
         await self._persist_draft(draft)
         return draft
+
+    async def _get_or_fetch_screenshot(
+        self,
+        app_id: str,
+        store_type: str,
+        game_name: str,
+        draft_id: uuid.UUID,
+    ) -> str | None:
+        """
+        Return an AssetStore key for the game screenshot.
+
+        Priority:
+        1. Cache hit  → copy cached file into draft folder and return draft key
+        2. Cache miss → scrape URL, download, save to game_cache AND draft folder
+        """
+        cache_screenshot_key = f"game_cache/{app_id}/screenshot.png"
+
+        # ── 1. Cache hit ──────────────────────────────────────────────────────
+        if self._cache:
+            entry = await self._cache.get(app_id)
+            if entry and entry.get("screenshot_key"):
+                cached_key = entry["screenshot_key"]
+                if await self._store.exists(cached_key):
+                    # Copy into the draft's own key so URLs stay stable
+                    draft_key = f"drafts/{draft_id}/screenshot.png"
+                    data = await self._store.get(cached_key)
+                    await self._store.put(draft_key, data)
+                    logger.info("Cache hit for screenshot %r", app_id)
+                    return draft_key
+
+        # ── 2. Cache miss — scrape ────────────────────────────────────────────
+        screenshot_url = await self._fetch_screenshot_url(app_id, store_type)
+        if not screenshot_url:
+            logger.warning("No screenshot URL found for %r", app_id)
+            return None
+
+        try:
+            import httpx
+            async with httpx.AsyncClient(timeout=15) as client:
+                r = await client.get(screenshot_url)
+                r.raise_for_status()
+                img_bytes = r.content
+        except Exception as exc:
+            logger.warning("Screenshot download failed for %r: %s", app_id, exc)
+            return None
+
+        # Save to persistent game_cache
+        await self._store.put(cache_screenshot_key, img_bytes)
+
+        # Save to draft folder
+        draft_key = f"drafts/{draft_id}/screenshot.png"
+        await self._store.put(draft_key, img_bytes)
+
+        # Update DB cache
+        if self._cache:
+            await self._cache.put(
+                app_id=app_id,
+                game_name=game_name,
+                store_type=store_type,
+                screenshot_key=cache_screenshot_key,
+                source="scraped",
+            )
+
+        logger.info("Scraped and cached screenshot for %r", app_id)
+        return draft_key
+
+    async def save_manual_screenshot(
+        self,
+        app_id: str,
+        game_name: str,
+        store_type: str,
+        img_bytes: bytes,
+    ) -> str:
+        """
+        Persist a manually-uploaded screenshot to the game cache so future
+        slides using the same app_id reuse this image without scraping.
+        Returns the cache AssetStore key.
+        """
+        cache_key = f"game_cache/{app_id}/screenshot.png"
+        await self._store.put(cache_key, img_bytes)
+        if self._cache:
+            await self._cache.put(
+                app_id=app_id,
+                game_name=game_name,
+                store_type=store_type,
+                screenshot_key=cache_key,
+                source="manual",
+            )
+        logger.info("Manual screenshot saved to cache for %r (%r)", app_id, game_name)
+        return cache_key
 
     async def _fetch_screenshot_url(self, app_id: str, store_type: str) -> str | None:
         """
@@ -236,9 +327,16 @@ class Orchestrator:
                     data = r.json()
                     results = data.get("results", [])
                     if results:
-                        shots = results[0].get("screenshotUrls", [])
+                        entry = results[0]
+                        # Prefer iPhone screenshots, fall back to iPad, then artwork
+                        shots = (
+                            entry.get("screenshotUrls")
+                            or entry.get("ipadScreenshotUrls")
+                            or []
+                        )
                         if shots:
                             return shots[0]
+                        logger.info("No screenshots found for App Store app %r", app_id)
             except Exception as exc:
                 logger.warning("iTunes screenshot lookup failed for %r: %s", app_id, exc)
             return None
@@ -250,7 +348,9 @@ class Orchestrator:
                     None, functools.partial(_gplay_app, app_id)
                 )
                 screenshots = app_info.get("screenshots", [])
-                return screenshots[0] if screenshots else None
+                if screenshots:
+                    return screenshots[0]
+                logger.info("No screenshots found for Play Store app %r", app_id)
             except Exception as exc:
                 logger.warning("Play Store screenshot lookup failed for %r: %s", app_id, exc)
             return None

@@ -1,24 +1,25 @@
 """
 Parses the slide text format into structured slide data.
 
-Accepted input format (one blank line between slides):
+Accepted input format — each slide is exactly 3 consecutive lines,
+blank lines between slides are optional:
 
     Coin Load Jam by Kevin Kuelbag
     https://apps.apple.com/us/app/coin-load-jam/id6758344115
     Park Match by Supersonic + Coins
-
-    Pixel Flow by Loom Games
-    https://play.google.com/store/apps/details?id=com.example.pixelflow
-    Holes + Planet
+    Planets (game) by Oksana Voloshyna
+    https://apps.apple.com/us/app/planets-game/id6761521229
+    Pixel Flow by Loom Games + Holes + Planet
 
 Rules:
 - Line 1: main game  "Name by Publisher"  (publisher optional)
-- Line 2: App Store or Play Store URL (used to fetch screenshot)
-- Line 3+: inspirations joined into one line, separated by ' + '
+- Line 2: App Store or Play Store URL
+- Line 3: inspirations separated by ' + '
 - Each inspiration: "Game Name by Publisher"  OR  just "Game Name" (concept)
-- Also accepts the legacy numbered format:
+
+Also accepts the legacy numbered format (URL on line 1):
     12) https://play.google.com/...
-    Color block jam by rollic + Bus frenzy by crazylabs
+    Color block jam by rollic + Bus frenzy
 """
 from __future__ import annotations
 
@@ -43,7 +44,7 @@ class ParsedSlide:
     game_publisher: str | None
     inspirations: list[ParsedInspiration] = field(default_factory=list)
 
-    # Keep backward-compat alias
+    # Backward-compat alias
     @property
     def play_store_url(self) -> str:
         return self.store_url
@@ -58,25 +59,87 @@ class TextBriefParseError(ValueError):
 def parse_text_brief(text: str) -> list[ParsedSlide]:
     """
     Parse the pasted text into a list of ParsedSlide objects.
-    Raises TextBriefParseError on fatal format issues.
+
+    Strategy:
+    1. Strip blank lines so we get a flat list of non-empty lines.
+    2. Walk the list and group into 3-line blocks by detecting the URL line
+       (position 1 within each group). Each block is: name → URL → inspirations.
+    3. If the first non-empty line looks like a URL or has a slide-number prefix,
+       fall into legacy mode for that block.
+    """
+    lines = [l.strip() for l in text.splitlines() if l.strip()]
+    if not lines:
+        raise TextBriefParseError("No content found in the pasted text.")
+
+    # Check if first line is legacy format (URL or numbered)
+    if _is_url(lines[0]) or re.match(r"^\d+[).\s]", lines[0]):
+        return _parse_legacy(lines)
+
+    return _parse_new(lines)
+
+
+# ── New format: triplets of (name, URL, inspirations) ────────────────────────
+
+def _parse_new(lines: list[str]) -> list[ParsedSlide]:
+    """
+    Group consecutive lines into 3-line blocks: name → URL → inspirations.
+    The URL is always line index 1 within a block; we use that as the anchor.
     """
     slides: list[ParsedSlide] = []
+    i = 0
+    block_idx = 0
 
-    blocks = re.split(r"\n{2,}", text.strip())
+    while i < len(lines):
+        block_idx += 1
 
-    for block_idx, block in enumerate(blocks, start=1):
-        lines = [l.strip() for l in block.strip().splitlines() if l.strip()]
-        if not lines:
+        # Find the URL line — it should be the next line after a non-URL line
+        # Tolerate occasional blank remnants already stripped.
+        name_line = lines[i]
+
+        if _is_url(name_line):
+            # Unexpected URL where we expected a name — skip
+            i += 1
             continue
 
-        # Detect format: if the first non-empty line looks like a URL or
-        # starts with a slide number, treat as legacy format.
-        if _is_url(lines[0]) or re.match(r"^\d+[).\s]", lines[0]):
-            slide = _parse_legacy_block(lines, block_idx)
-        else:
-            slide = _parse_new_block(lines, block_idx)
+        # The URL must be the very next line
+        if i + 1 >= len(lines):
+            raise TextBriefParseError(
+                f"Block {block_idx}: game line {name_line!r} has no following URL."
+            )
 
-        slides.append(slide)
+        url_line = lines[i + 1]
+        if not _is_url(url_line):
+            raise TextBriefParseError(
+                f"Block {block_idx}: expected a store URL after {name_line!r}, "
+                f"got: {url_line!r}"
+            )
+
+        if i + 2 >= len(lines):
+            raise TextBriefParseError(
+                f"Block {block_idx}: no inspirations line after URL {url_line!r}."
+            )
+
+        insp_line = lines[i + 2]
+        if _is_url(insp_line):
+            raise TextBriefParseError(
+                f"Block {block_idx}: expected inspirations after URL but got another URL: {insp_line!r}"
+            )
+
+        game_name, game_publisher = _split_name_publisher(name_line)
+        store_type, app_id = _classify_url(url_line, block_idx)
+        inspirations = _parse_inspirations(insp_line, block_idx)
+
+        slides.append(ParsedSlide(
+            slide_number=None,
+            store_url=url_line,
+            store_type=store_type,
+            app_id=app_id,
+            game_name=game_name,
+            game_publisher=game_publisher,
+            inspirations=inspirations,
+        ))
+
+        i += 3  # advance by exactly one 3-line block
 
     if not slides:
         raise TextBriefParseError("No valid slides found in the pasted text.")
@@ -84,78 +147,52 @@ def parse_text_brief(text: str) -> list[ParsedSlide]:
     return slides
 
 
-# ── New format: Name/URL/Inspirations ────────────────────────────────────────
+# ── Legacy format: URL first, then inspirations ───────────────────────────────
 
-def _parse_new_block(lines: list[str], block_idx: int) -> ParsedSlide:
-    """
-    Line 0: "Game Name by Publisher"
-    Line 1: store URL
-    Line 2+: inspirations (may span multiple lines joined with '+')
-    """
-    if len(lines) < 3:
-        raise TextBriefParseError(
-            f"Block {block_idx}: expected at least 3 lines "
-            f"(game name · URL · inspirations), got {len(lines)}. "
-            f"First line: {lines[0]!r}"
-        )
+def _parse_legacy(lines: list[str]) -> list[ParsedSlide]:
+    """Original format: optional number + URL on line 1, inspirations on line 2."""
+    slides: list[ParsedSlide] = []
+    i = 0
+    block_idx = 0
 
-    game_line = lines[0]
-    url_line = lines[1]
+    while i < len(lines):
+        block_idx += 1
+        url_line = lines[i]
 
-    if not _is_url(url_line):
-        raise TextBriefParseError(
-            f"Block {block_idx}: expected a store URL on line 2, got: {url_line!r}"
-        )
+        slide_number: int | None = None
+        num_match = re.match(r"^(\d+)[).\s]+", url_line)
+        if num_match:
+            slide_number = int(num_match.group(1))
+            url_line = url_line[num_match.end():].strip()
 
-    # Join remaining lines as inspiration text (supports multi-line input)
-    insp_text = " + ".join(lines[2:])
+        if not _is_url(url_line):
+            i += 1
+            continue
 
-    game_name, game_publisher = _split_name_publisher(game_line)
-    store_type, app_id = _classify_url(url_line, block_idx)
-    inspirations = _parse_inspirations(insp_text, block_idx)
+        if i + 1 >= len(lines):
+            raise TextBriefParseError(
+                f"Block {block_idx}: URL {url_line!r} has no following inspirations line."
+            )
 
-    return ParsedSlide(
-        slide_number=None,
-        store_url=url_line,
-        store_type=store_type,
-        app_id=app_id,
-        game_name=game_name,
-        game_publisher=game_publisher,
-        inspirations=inspirations,
-    )
+        insp_line = lines[i + 1]
+        store_type, app_id = _classify_url(url_line, block_idx)
+        inspirations = _parse_inspirations(insp_line, block_idx)
 
+        slides.append(ParsedSlide(
+            slide_number=slide_number,
+            store_url=url_line,
+            store_type=store_type,
+            app_id=app_id,
+            game_name="",
+            game_publisher=None,
+            inspirations=inspirations,
+        ))
+        i += 2
 
-# ── Legacy format: Number/URL/Inspirations ───────────────────────────────────
+    if not slides:
+        raise TextBriefParseError("No valid slides found in the pasted text.")
 
-def _parse_legacy_block(lines: list[str], block_idx: int) -> ParsedSlide:
-    if len(lines) < 2:
-        raise TextBriefParseError(
-            f"Block {block_idx}: expected 2+ lines (URL + inspirations), "
-            f"got {len(lines)}."
-        )
-
-    url_line = lines[0]
-    insp_text = " + ".join(lines[1:])
-
-    # Extract optional leading "12)" or "12." prefix
-    slide_number: int | None = None
-    num_match = re.match(r"^(\d+)[).\s]+", url_line)
-    if num_match:
-        slide_number = int(num_match.group(1))
-        url_line = url_line[num_match.end():].strip()
-
-    store_type, app_id = _classify_url(url_line, block_idx)
-    inspirations = _parse_inspirations(insp_text, block_idx)
-
-    return ParsedSlide(
-        slide_number=slide_number,
-        store_url=url_line,
-        store_type=store_type,
-        app_id=app_id,
-        game_name="",          # will be fetched from store
-        game_publisher=None,
-        inspirations=inspirations,
-    )
+    return slides
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -165,7 +202,6 @@ def _is_url(s: str) -> bool:
 
 
 def _split_name_publisher(line: str) -> tuple[str, str | None]:
-    """Split 'Name by Publisher' → (name, publisher). Publisher may be None."""
     m = re.match(r"^(.+?)\s+by\s+(.+)$", line.strip(), re.IGNORECASE)
     if m:
         return m.group(1).strip(), m.group(2).strip()
@@ -173,11 +209,9 @@ def _split_name_publisher(line: str) -> tuple[str, str | None]:
 
 
 def _classify_url(url: str, block_idx: int) -> tuple[str, str]:
-    """Return (store_type, app_id). Raises TextBriefParseError if unrecognised."""
     parsed = urlparse(url)
     host = parsed.netloc.lower()
 
-    # Apple App Store: https://apps.apple.com/us/app/name/id1234567890
     if "apple.com" in host:
         m = re.search(r"/id(\d+)", parsed.path)
         if m:
@@ -186,7 +220,6 @@ def _classify_url(url: str, block_idx: int) -> tuple[str, str]:
             f"Block {block_idx}: could not extract iOS app id from: {url!r}"
         )
 
-    # Google Play Store
     if "play.google.com" in host:
         qs = parse_qs(parsed.query)
         ids = qs.get("id", [])
@@ -206,7 +239,6 @@ def _classify_url(url: str, block_idx: int) -> tuple[str, str]:
 
 
 def _parse_inspirations(line: str, block_idx: int) -> list[ParsedInspiration]:
-    """Split 'Game A by Pub + Game B by Pub + Concept' into ParsedInspiration list."""
     parts = [p.strip() for p in line.split("+") if p.strip()]
     if not parts:
         raise TextBriefParseError(
