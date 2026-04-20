@@ -135,6 +135,7 @@ class DraftState(BaseModel):
     # Store metadata — used to re-fetch screenshot if it failed on first attempt
     store_app_id: str | None = None
     store_type: str | None = None   # "appstore" | "playstore"
+    store_slug: str | None = None   # App Store URL slug e.g. "skate-boy" (for AppMagic fallback)
 
 
 # ── Edit payloads ─────────────────────────────────────────────────────────────

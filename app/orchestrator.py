@@ -32,6 +32,29 @@ from app.storage.base import AssetStore
 logger = logging.getLogger(__name__)
 
 
+def _fix_l_i_from_slug(game_name: str, slug: str) -> str:
+    """
+    Fix lowercase-l / uppercase-I confusion in game names using the URL slug.
+
+    Copy-pasted text from some design tools replaces capital 'I' with lowercase
+    'l' (e.g. "ldle" instead of "Idle"). The slug is always ASCII-lowercase so
+    'idle' vs 'ldle' reveals the mismatch.
+    """
+    slug_words = slug.replace("-", " ").split()
+    name_words = game_name.split()
+    if len(slug_words) != len(name_words):
+        return game_name
+    corrected = []
+    for nw, sw in zip(name_words, slug_words):
+        # Compare case-insensitively treating l==i
+        if nw.lower().replace("l", "i") == sw.replace("l", "i") and nw.lower() != sw:
+            # Use slug as authoritative casing source (title-case each word)
+            corrected.append(sw.capitalize())
+        else:
+            corrected.append(nw)
+    return " ".join(corrected)
+
+
 def _gplay_app(app_id: str) -> dict:
     """Synchronous Play Store metadata fetch — run in a thread pool."""
     from google_play_scraper import app as gplay_app  # type: ignore
@@ -98,6 +121,7 @@ class Orchestrator:
                 store_type=draft.store_type,
                 game_name=draft.game_name,
                 draft_id=draft.id,
+                slug=draft.store_slug,
             )
             if key:
                 draft.screenshot_asset_key = key
@@ -164,12 +188,28 @@ class Orchestrator:
 
         draft_id = uuid.uuid4()
 
+        # Extract slug from store URL for AppMagic fallback
+        slug: str | None = None
+        if store_url and store_type == "appstore":
+            try:
+                from app.utils.text_brief_parser import parse_store_url
+                slug = parse_store_url(store_url).slug
+            except Exception:
+                pass
+
+        # Fix l/I confusion: copy-paste from stylised sources often replaces
+        # capital I with lowercase l (e.g. "ldle" instead of "Idle").
+        # Correct this using the URL slug as ground truth.
+        if game_name and slug:
+            game_name = _fix_l_i_from_slug(game_name, slug)
+
         # Fetch screenshot — checks cache first, scrapes + caches on miss
         screenshot_key = await self._get_or_fetch_screenshot(
             app_id=app_id,
             store_type=store_type or "unknown",
             game_name=game_name,
             draft_id=draft_id,
+            slug=slug,
         )
 
         insps: list[InspirationDraft] = []
@@ -213,6 +253,7 @@ class Orchestrator:
             inspirations=insps,
             store_app_id=app_id,
             store_type=store_type,
+            store_slug=slug,
         )
         await self._render_and_save(draft)
         await self._persist_draft(draft)
@@ -224,6 +265,7 @@ class Orchestrator:
         store_type: str,
         game_name: str,
         draft_id: uuid.UUID,
+        slug: str | None = None,
     ) -> str | None:
         """
         Return an AssetStore key for the game screenshot.
@@ -248,12 +290,7 @@ class Orchestrator:
                     return draft_key
 
         # ── 2. Cache miss — scrape ────────────────────────────────────────────
-        screenshot_url = await self._fetch_screenshot_url(app_id, store_type)
-
-        # ── 3. Store scrape failed — fall back to DDG image search ────────────
-        if not screenshot_url:
-            logger.info("Store scrape failed for %r, trying DDG image search", app_id)
-            screenshot_url = await self._search_screenshot_url(game_name)
+        screenshot_url = await self._fetch_screenshot_url(app_id, store_type, slug=slug)
 
         if not screenshot_url:
             logger.warning("No screenshot URL found for %r", app_id)
@@ -268,6 +305,21 @@ class Orchestrator:
         except Exception as exc:
             logger.warning("Screenshot download failed for %r: %s", app_id, exc)
             return None
+
+        # Reject icon-sized images — screenshots must be at least 200px on the short side
+        try:
+            import io
+            from PIL import Image as _Image
+            _img = _Image.open(io.BytesIO(img_bytes))
+            _w, _h = _img.size
+            if min(_w, _h) < 200:
+                logger.warning(
+                    "Rejecting %r screenshot — too small (%dx%d), likely an icon",
+                    app_id, _w, _h,
+                )
+                return None
+        except Exception:
+            pass  # if PIL can't read it, let it fail later at render time
 
         # Save to persistent game_cache
         await self._store.put(cache_screenshot_key, img_bytes)
@@ -314,19 +366,20 @@ class Orchestrator:
         logger.info("Manual screenshot saved to cache for %r (%r)", app_id, game_name)
         return cache_key
 
-    async def _fetch_screenshot_url(self, app_id: str, store_type: str) -> str | None:
+    async def _fetch_screenshot_url(self, app_id: str, store_type: str, slug: str | None = None) -> str | None:
         """
         Try to obtain a screenshot URL for the given app.
-        - App Store: uses iTunes Search API to get artwork/screenshots
-        - Play Store: uses google-play-scraper
+        - App Store: iTunes API → AppMagic (Playwright)
+        - Play Store: google-play-scraper → HTML scrape
         Returns None on failure (non-fatal).
         """
         import asyncio
         import functools
 
         if store_type == "appstore":
-            # iOS numeric id is stored as "ios_<number>"
             numeric_id = app_id.removeprefix("ios_")
+
+            # 1. iTunes API
             try:
                 import httpx
                 async with httpx.AsyncClient(timeout=10) as client:
@@ -339,7 +392,6 @@ class Orchestrator:
                     results = data.get("results", [])
                     if results:
                         entry = results[0]
-                        # Prefer iPhone screenshots, fall back to iPad, then artwork
                         shots = (
                             entry.get("screenshotUrls")
                             or entry.get("ipadScreenshotUrls")
@@ -347,9 +399,15 @@ class Orchestrator:
                         )
                         if shots:
                             return shots[0]
-                        logger.info("No screenshots found for App Store app %r", app_id)
+                        logger.info("iTunes returned no screenshots for %r, trying AppMagic", app_id)
             except Exception as exc:
                 logger.warning("iTunes screenshot lookup failed for %r: %s", app_id, exc)
+
+            # 2. AppMagic scrape via Playwright
+            url = await self._scrape_appmagic(numeric_id, slug=slug)
+            if url:
+                return url
+
             return None
 
         if store_type == "playstore":
@@ -397,50 +455,88 @@ class Orchestrator:
 
         return None
 
-    async def _search_screenshot_url(self, game_name: str) -> str | None:
+    async def _scrape_appmagic(self, numeric_id: str, slug: str | None = None) -> str | None:
         """
-        Fallback: search DuckDuckGo images for a game screenshot.
-        Tries landscape/gameplay shots, skips tiny thumbnails and icons.
+        Scrape a screenshot URL from AppMagic using Playwright (headless Chromium).
+        AppMagic is a JS-rendered Angular SPA — plain HTTP returns no image data.
+
+        Constructs the AppMagic URL from the iTunes numeric ID (and slug if available).
+        Extracts images.appmagic.rocks proxy URLs, decodes the underlying mzstatic URL,
+        and bumps the resolution to full-height.
         """
         import asyncio
         import functools
+        from urllib.parse import urlparse, parse_qs
 
-        queries = [
-            f"{game_name} mobile game screenshot gameplay",
-            f"{game_name} game screenshot",
-        ]
+        # Build AppMagic URL — slug is optional, ID alone works via redirect
+        if slug:
+            appmagic_url = f"https://appmagic.rocks/ipad/{slug}/{numeric_id}"
+        else:
+            appmagic_url = f"https://appmagic.rocks/ipad/app/{numeric_id}"
 
-        def _ddg_search(query: str) -> list[dict]:
+        def _extract_screenshot_from_page(page) -> str | None:
+            """Extract best mzstatic screenshot URL from a loaded AppMagic page."""
+            imgs = page.query_selector_all('img[src*="images.appmagic.rocks"]')
+            for img in imgs:
+                src = img.get_attribute("src") or ""
+                if "images.appmagic.rocks" not in src:
+                    continue
+                qs = parse_qs(urlparse(src).query)
+                mzstatic = (qs.get("uri") or [""])[0]
+                if not mzstatic or "mzstatic.com" not in mzstatic:
+                    continue
+                size_match = re.search(r'/0x(\d+)h', mzstatic)
+                if size_match and int(size_match.group(1)) < 200:
+                    continue
+                return re.sub(r'/0x\d+h\.jpg$', '/0x1920h.jpg', mzstatic)
+            return None
+
+        def _playwright_scrape() -> str | None:
             try:
-                from duckduckgo_search import DDGS
-                with DDGS() as ddgs:
-                    return list(ddgs.images(query, max_results=15))
+                from playwright.sync_api import sync_playwright
+                with sync_playwright() as p:
+                    browser = p.chromium.launch(headless=True)
+                    # Try ipad then iphone platform paths
+                    platforms = ["ipad", "iphone"]
+                    if slug:
+                        urls = [f"https://appmagic.rocks/{pl}/{slug}/{numeric_id}" for pl in platforms]
+                    else:
+                        urls = [f"https://appmagic.rocks/{pl}/app/{numeric_id}" for pl in platforms]
+
+                    result = None
+                    for url in urls:
+                        try:
+                            page = browser.new_page()
+                            # Use 'load' + short networkidle wait — avoids infinite SPA hangs
+                            page.goto(url, wait_until="load", timeout=45000)
+                            try:
+                                page.wait_for_load_state("networkidle", timeout=10000)
+                            except Exception:
+                                pass  # networkidle optional
+                            result = _extract_screenshot_from_page(page)
+                            page.close()
+                            if result:
+                                break
+                        except Exception as exc:
+                            logger.debug("AppMagic %s failed for id=%r: %s", url, numeric_id, exc)
+                            try:
+                                page.close()
+                            except Exception:
+                                pass
+
+                    browser.close()
+                    return result
             except Exception as exc:
-                logger.warning("DDG image search failed for %r: %s", query, exc)
-                return []
+                logger.warning("AppMagic Playwright scrape failed for id=%r: %s", numeric_id, exc)
+                return None
 
         loop = asyncio.get_event_loop()
-        for query in queries:
-            results = await loop.run_in_executor(None, functools.partial(_ddg_search, query))
-            # Prefer tall portrait screenshots (mobile games are portrait)
-            for r in results:
-                url = r.get("image", "")
-                w = r.get("width", 0)
-                h = r.get("height", 0)
-                if url and h >= 500 and h > w:
-                    logger.info("DDG screenshot (portrait) for %r: %s", game_name, url)
-                    return url
-            # Accept any reasonably sized image
-            for r in results:
-                url = r.get("image", "")
-                w = r.get("width", 0)
-                h = r.get("height", 0)
-                if url and max(w, h) >= 400:
-                    logger.info("DDG screenshot (relaxed) for %r: %s", game_name, url)
-                    return url
-
-        logger.warning("DDG screenshot fallback found nothing for %r", game_name)
-        return None
+        result = await loop.run_in_executor(None, _playwright_scrape)
+        if result:
+            logger.info("AppMagic screenshot for id=%r: %s", numeric_id, result)
+        else:
+            logger.info("AppMagic returned no screenshots for id=%r", numeric_id)
+        return result
 
     async def create_empty_draft(self, game_name: str = "New Slide") -> DraftState:
         """Create a blank draft (no screenshot, placeholder inspirations)."""

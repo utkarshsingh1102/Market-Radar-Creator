@@ -121,10 +121,14 @@ def parse_store_url(url: str) -> StoreUrlInfo:
         )
 
     if "appmagic.rocks" in host:
-        # /ipad/<slug>/<numeric_id>  OR  /android/<package>
+        # /ipad/<slug>/<numeric_id>  OR  /android/<package>  OR  /google-play/<slug>/<package>
         parts = [p for p in parsed.path.split("/") if p]
-        if len(parts) >= 1 and parts[0] == "android":
-            pkg = "/".join(parts[1:]) if len(parts) > 1 else ""
+        if len(parts) >= 1 and parts[0] in ("android", "google-play"):
+            # /android/<package>  OR  /google-play/<slug>/<package>
+            if parts[0] == "google-play" and len(parts) >= 3:
+                pkg = parts[2]
+            else:
+                pkg = "/".join(parts[1:]) if len(parts) > 1 else ""
             if not pkg:
                 raise ValueError(f"Cannot parse AppMagic Android URL: {url!r}")
             return StoreUrlInfo(

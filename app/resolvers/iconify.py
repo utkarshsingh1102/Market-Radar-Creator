@@ -92,30 +92,42 @@ async def search_iconify(query: str) -> tuple[str, str] | None:
     """
     Search Iconify for icons matching *query*.
     Returns (prefix, icon_name) of the best match, or None.
+
+    Tries progressively shorter queries so "Car theme" → "Car" still finds mdi:car.
     Prefers game-relevant icon sets: game-icons, mdi, fluent-emoji-flat.
     """
     preferred_sets = ["game-icons", "mdi", "fluent-emoji-flat", "noto", "twemoji"]
 
+    # Build candidate queries: full phrase → each individual word (longest first)
+    words = query.split()
+    candidates = [query] + sorted(set(words), key=len, reverse=True)
+
     async with httpx.AsyncClient(timeout=10) as client:
-        r = await client.get(_SEARCH_URL, params={"query": query, "limit": 20})
-        r.raise_for_status()
-        data = r.json()
+        for candidate in candidates:
+            if not candidate.strip():
+                continue
+            r = await client.get(_SEARCH_URL, params={"query": candidate, "limit": 20})
+            if r.status_code != 200:
+                continue
+            icons: list[str] = r.json().get("icons", [])
+            if not icons:
+                continue
 
-    icons: list[str] = data.get("icons", [])
-    if not icons:
-        return None
+            # Prefer icons from game-relevant sets
+            for pref in preferred_sets:
+                for icon in icons:
+                    if icon.startswith(pref + ":"):
+                        prefix, name = icon.split(":", 1)
+                        logger.debug("Iconify match for %r via %r: %s:%s", query, candidate, prefix, name)
+                        return prefix, name
 
-    # Prefer icons from game-relevant sets
-    for pref in preferred_sets:
-        for icon in icons:
-            if icon.startswith(pref + ":"):
-                prefix, name = icon.split(":", 1)
-                return prefix, name
+            # Accept first result from any set
+            first = icons[0]
+            prefix, name = first.split(":", 1)
+            logger.debug("Iconify match for %r via %r: %s:%s", query, candidate, prefix, name)
+            return prefix, name
 
-    # Fallback: first result
-    first = icons[0]
-    prefix, name = first.split(":", 1)
-    return prefix, name
+    return None
 
 
 async def fetch_iconify_svg(prefix: str, name: str) -> bytes | None:
