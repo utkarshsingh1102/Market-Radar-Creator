@@ -6,6 +6,7 @@ from pathlib import Path
 
 import aiofiles
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from app.models.project import Project, ProjectSlide
@@ -163,6 +164,80 @@ async def create_project_from_text(body: CreateFromTextBody, request: Request):
 
     await _save_project(projects_dir, project)
     return _project_to_dict(project, base)
+
+
+@router.post("/from-text/stream")
+async def create_project_from_text_stream(body: CreateFromTextBody, request: Request):
+    """
+    Same as /from-text but streams SSE progress events so the UI can show
+    a live 'X / Y slides created' indicator.
+
+    Event types emitted:
+      {"event": "start",    "total": N}
+      {"event": "progress", "done": N, "total": N, "title": "Game Name"}
+      {"event": "error",    "slide": N, "detail": "..."}  (non-fatal)
+      {"event": "complete", "project_id": "...", "project_url": "/projects/..."}
+    """
+    try:
+        parsed_slides = parse_text_brief(body.text)
+    except TextBriefParseError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    orchestrator = request.app.state.orchestrator
+    projects_dir = _projects_dir(request)
+
+    project = Project(name=body.project_name, source="text")
+    total = len(parsed_slides)
+
+    async def _sse(data: dict) -> str:
+        return f"data: {json.dumps(data)}\n\n"
+
+    async def event_stream():
+        yield await _sse({"event": "start", "total": total})
+
+        for i, parsed in enumerate(parsed_slides):
+            try:
+                draft = await orchestrator.create_draft_from_text_slide(
+                    app_id=parsed.app_id,
+                    inspirations_data=[
+                        {"name": insp.name, "publisher": insp.publisher}
+                        for insp in parsed.inspirations
+                    ],
+                    store_url=parsed.store_url,
+                    store_type=parsed.store_type,
+                    game_name=parsed.game_name or None,
+                    game_publisher=parsed.game_publisher,
+                )
+                project.slides.append(ProjectSlide(
+                    draft_id=str(draft.id),
+                    title=draft.game_name,
+                    preview_key=draft.preview_asset_key,
+                ))
+                yield await _sse({
+                    "event": "progress",
+                    "done": i + 1,
+                    "total": total,
+                    "title": draft.game_name,
+                })
+            except Exception as exc:
+                yield await _sse({
+                    "event": "error",
+                    "slide": i + 1,
+                    "detail": str(exc),
+                })
+
+        await _save_project(projects_dir, project)
+        yield await _sse({
+            "event": "complete",
+            "project_id": project.id,
+            "project_url": f"/projects/{project.id}",
+        })
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.get("/{project_id}")

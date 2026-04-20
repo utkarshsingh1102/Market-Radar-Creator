@@ -143,6 +143,32 @@ h1 { font-size: 24px; font-weight: 800; color: #fff; margin-bottom: 6px; }
 .back-link { font-size: 13px; color: #555; text-decoration: none; }
 .back-link:hover { color: #aaa; }
 .error { color: #e05050; font-size: 13px; margin-top: 8px; }
+
+/* ── Progress box ────────────────────────────────────────────────────────── */
+.progress-box {
+  margin-top: 24px; background: #1a1a1a; border: 1px solid #2a2a2a;
+  border-radius: 12px; padding: 20px 24px;
+}
+.progress-box-title {
+  font-size: 13px; font-weight: 700; color: #eee; margin-bottom: 14px;
+  display: flex; align-items: center; gap: 10px;
+}
+.progress-bar-track {
+  height: 8px; background: #2a2a2a; border-radius: 4px; overflow: hidden; margin-bottom: 10px;
+}
+.progress-bar-fill {
+  height: 100%; background: var(--yellow); border-radius: 4px;
+  transition: width .35s ease; min-width: 4px;
+}
+.progress-counts {
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 12px; color: #666;
+}
+.progress-counts strong { color: var(--yellow); font-size: 14px; }
+.progress-current-title {
+  margin-top: 10px; font-size: 12px; color: #555;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 </style>
 {% endblock %}
 
@@ -321,9 +347,29 @@ h1 { font-size: 24px; font-weight: 800; color: #fff; margin-bottom: 6px; }
             :disabled="loading || !projectName.trim()
               || (method==='json' && validation && validation.error_count > 0)
               || (method==='text' && !rawText.trim())">
-      <span x-show="loading" class="spinner"></span>
+      <span x-show="loading && !progress.active" class="spinner"></span>
       <span x-text="loading ? 'Creating…' : 'Create Project →'"></span>
     </button>
+  </div>
+
+  <!-- Progress box (shown during SSE streaming) -->
+  <div class="progress-box" x-show="progress.active">
+    <div class="progress-box-title">
+      <span class="spinner" style="width:14px;height:14px;border-width:2px"></span>
+      Creating slides…
+    </div>
+    <div class="progress-bar-track">
+      <div class="progress-bar-fill"
+           :style="'width: ' + (progress.total ? Math.round(progress.done / progress.total * 100) : 0) + '%'">
+      </div>
+    </div>
+    <div class="progress-counts">
+      <span><strong x-text="progress.done"></strong> / <span x-text="progress.total"></span> slides created</span>
+      <span x-text="progress.total ? Math.round(progress.done / progress.total * 100) + '%' : '0%'"></span>
+    </div>
+    <div class="progress-current-title" x-show="progress.currentTitle">
+      ✓ <span x-text="progress.currentTitle"></span>
+    </div>
   </div>
 
 </div>
@@ -337,6 +383,7 @@ function newProject() {
     jsonBrief: null,
     dragging: false,
     loading: false,
+    progress: { active: false, done: 0, total: 0, currentTitle: '' },
     validating: false,
     validation: null,   // result from /api/validate-brief
     rawText: '',
@@ -474,19 +521,57 @@ function newProject() {
 
     async createFromText() {
       this.loading = true;
+      this.progress = { active: true, done: 0, total: 0, currentTitle: '' };
       try {
-        const r = await fetch('/api/projects/from-text', {
+        const response = await fetch('/api/projects/from-text/stream', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ project_name: this.projectName, text: this.rawText })
         });
-        const d = await r.json();
-        if (!r.ok) { this.error = d.detail || 'Failed to create project.'; return; }
-        window.location.href = `/projects/${d.id}`;
+
+        if (!response.ok) {
+          const d = await response.json().catch(() => ({}));
+          this.error = d.detail || 'Failed to create project.';
+          return;
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          // SSE chunks are separated by double newlines
+          const chunks = buffer.split('\n\n');
+          buffer = chunks.pop(); // keep potentially incomplete last chunk
+          for (const chunk of chunks) {
+            const dataLine = chunk.split('\n').find(l => l.startsWith('data: '));
+            if (!dataLine) continue;
+            let evt;
+            try { evt = JSON.parse(dataLine.slice(6)); } catch { continue; }
+
+            if (evt.event === 'start') {
+              this.progress.total = evt.total;
+            } else if (evt.event === 'progress') {
+              this.progress.done = evt.done;
+              this.progress.total = evt.total;
+              this.progress.currentTitle = evt.title || '';
+            } else if (evt.event === 'complete') {
+              window.location.href = evt.project_url;
+              return;
+            } else if (evt.event === 'error') {
+              // Non-fatal — log but continue
+              console.warn(`Slide ${evt.slide} error: ${evt.detail}`);
+            }
+          }
+        }
       } catch(e) {
         this.error = 'Error: ' + e.message;
       } finally {
         this.loading = false;
+        this.progress.active = false;
       }
     },
 

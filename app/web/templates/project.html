@@ -4,61 +4,148 @@
 {% block extra_head %}
 <style>
 body.studio-mode { overflow: hidden; }
+[x-cloak] { display: none !important; }
 
-/* ── Slide list panel (inside sidebar) ──────────────────────────────────── */
-.slide-list { padding: 10px; border-bottom: 1px solid #2a2a2a; }
-.slide-list-header {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 4px 4px 10px;
+/* ══ 3-panel studio layout ══════════════════════════════════════════════════ */
+.studio-3 {
+  display: grid;
+  grid-template-columns: 280px 1fr 240px;
+  height: calc(100vh - var(--topbar-height));
+  margin-top: var(--topbar-height);
+  overflow: hidden;
 }
-.slide-list-title { font-size: 11px; font-weight: 700; color: #666; text-transform: uppercase; letter-spacing: .5px; }
 
+/* ── Left panel: edit form ──────────────────────────────────────────────── */
+.edit-panel {
+  background: #161616;
+  border-right: 1px solid #2a2a2a;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.edit-panel-header {
+  padding: 10px 14px 8px;
+  border-bottom: 1px solid #222;
+  flex-shrink: 0;
+}
+.edit-panel-title {
+  font-size: 10px; font-weight: 700; color: #555;
+  text-transform: uppercase; letter-spacing: .5px;
+}
+.edit-panel-slide-name {
+  font-size: 13px; font-weight: 700; color: #ccc; margin-top: 2px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.edit-panel-body {
+  flex: 1; overflow-y: auto; padding: 12px 14px 16px;
+}
+.edit-panel-empty {
+  display: flex; align-items: center; justify-content: center;
+  height: 100%; color: #444; font-size: 13px; text-align: center;
+  padding: 20px;
+}
+.edit-panel-footer {
+  flex-shrink: 0; padding: 10px 14px;
+  border-top: 1px solid #222; background: #131313;
+  display: flex; flex-direction: column; gap: 8px;
+}
+
+/* JSON reload strip inside edit panel */
+.json-reload-row {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 11px; color: #555;
+}
+.json-reload-row label {
+  font-size: 11px; color: #888; cursor: pointer;
+  padding: 3px 8px; border: 1px solid #333; border-radius: 5px;
+  transition: border-color .12s, color .12s;
+}
+.json-reload-row label:hover { border-color: var(--yellow); color: var(--yellow); }
+.json-reload-row input { display: none; }
+
+/* ── Center: canvas ─────────────────────────────────────────────────────── */
+.canvas-panel {
+  display: flex; flex-direction: column;
+  overflow: hidden;
+  background: #111;
+}
+.canvas-panel .canvas-area {
+  flex: 1; height: auto;
+}
+
+/* ── Right panel: slide list ────────────────────────────────────────────── */
+.slides-panel {
+  background: #141414;
+  border-left: 1px solid #2a2a2a;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.slides-panel-header {
+  padding: 10px 12px 8px;
+  border-bottom: 1px solid #222;
+  display: flex; align-items: center; justify-content: space-between;
+  flex-shrink: 0;
+}
+.slides-panel-title {
+  font-size: 10px; font-weight: 700; color: #555;
+  text-transform: uppercase; letter-spacing: .5px;
+}
+.slides-panel-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+  /* Smooth scrolling */
+  scroll-behavior: smooth;
+}
+/* Custom scrollbar for slides panel */
+.slides-panel-body::-webkit-scrollbar { width: 4px; }
+.slides-panel-body::-webkit-scrollbar-track { background: transparent; }
+.slides-panel-body::-webkit-scrollbar-thumb { background: #333; border-radius: 2px; }
+.slides-panel-body::-webkit-scrollbar-thumb:hover { background: #555; }
+
+/* ── Slide tiles (right panel) ──────────────────────────────────────────── */
 .slide-tiles { display: flex; flex-direction: column; gap: 6px; }
 .slide-tile {
-  display: flex; align-items: center; gap: 10px;
-  padding: 8px 10px; border-radius: 8px; cursor: pointer;
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 8px; border-radius: 8px; cursor: pointer;
   border: 1.5px solid transparent; transition: background .12s, border-color .12s;
   background: #1e1e1e; position: relative;
 }
 .slide-tile:hover { background: #252525; }
 .slide-tile.active { border-color: var(--yellow); background: #201e10; }
 .slide-delete-btn {
-  display: flex; position: absolute; top: 8px; right: 8px;
-  width: 20px; height: 20px; border-radius: 50%;
+  display: flex; position: absolute; top: 6px; right: 6px;
+  width: 18px; height: 18px; border-radius: 50%;
   border: none; background: #e03030; color: #fff;
-  font-size: 11px; font-weight: 700; line-height: 1;
+  font-size: 10px; font-weight: 700; line-height: 1;
   cursor: pointer; align-items: center; justify-content: center;
   padding: 0; z-index: 10;
 }
 .slide-thumb-sm {
-  width: 42px; height: 42px; border-radius: 5px; object-fit: cover;
-  flex-shrink: 0; background: #eee;
+  width: 38px; height: 38px; border-radius: 5px; object-fit: cover;
+  flex-shrink: 0; background: #333;
 }
 .slide-thumb-sm-bg {
-  width: 42px; height: 42px; border-radius: 5px; flex-shrink: 0;
+  width: 38px; height: 38px; border-radius: 5px; flex-shrink: 0;
   background-image: url('/assets/background/market_radar_bg.png');
   background-size: cover; background-position: top;
-  opacity: .6;
+  opacity: .5;
 }
-.slide-tile-info { flex: 1; min-width: 0; }
-.slide-tile-num { font-size: 10px; font-weight: 700; color: #666; margin-bottom: 2px; }
-.slide-tile-name { font-size: 12px; font-weight: 600; color: #ccc;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.slide-tile-info { flex: 1; min-width: 0; padding-right: 20px; }
+.slide-tile-num { font-size: 9px; font-weight: 700; color: #555; margin-bottom: 1px; }
+.slide-tile-name {
+  font-size: 11px; font-weight: 600; color: #bbb;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 
-/* ── Edit form (below slide list) ───────────────────────────────────────── */
-.edit-form-area { flex: 1; overflow-y: auto; padding: 12px 16px 16px; background: #161616; }
-
-/* ── Canvas area respects topbar height ──────────────────────────────────── */
-.canvas-area { height: calc(100vh - var(--topbar-height)); }
-
-/* ── Export bar ──────────────────────────────────────────────────────────── */
+/* ── Canvas area ─────────────────────────────────────────────────────────── */
+.canvas-area { height: 100%; }
 .topbar .project-name-display {
   font-size: 13px; color: #ccc; font-weight: 600;
   max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-
-/* ── x-cloak ─────────────────────────────────────────────────────────────── */
-[x-cloak] { display: none !important; }
+.preview-loading { opacity: .4; transition: opacity .3s; }
 
 /* ── Download modal ──────────────────────────────────────────────────────── */
 .dl-overlay {
@@ -79,7 +166,8 @@ body.studio-mode { overflow: hidden; }
 }
 .dl-fmt-btn.active { border-color: var(--yellow); color: var(--yellow); background: #201e10; }
 .dl-slides-box {
-  border: 1px solid #2a2a2a; border-radius: 8px; overflow: hidden; margin-bottom: 20px;
+  border: 1px solid #2a2a2a; border-radius: 8px; overflow: hidden;
+  margin-bottom: 20px; max-height: 320px; overflow-y: auto;
 }
 .dl-slide-row {
   display: flex; align-items: center; gap: 10px; padding: 9px 12px;
@@ -88,14 +176,12 @@ body.studio-mode { overflow: hidden; }
 .dl-slide-row:last-child { border-bottom: none; }
 .dl-slide-row:hover { background: #222; }
 .dl-slide-row input[type=checkbox] { width: 15px; height: 15px; accent-color: var(--yellow); cursor: pointer; }
-.dl-slide-thumb {
-  width: 34px; height: 34px; border-radius: 4px; object-fit: cover; flex-shrink: 0; background: #333;
-}
+.dl-slide-thumb { width: 34px; height: 34px; border-radius: 4px; object-fit: cover; flex-shrink: 0; background: #333; }
 .dl-slide-label { font-size: 12px; color: #ccc; flex: 1; }
-.dl-slide-label span { display: block; font-size: 10px; color: #555; margin-top: 1px; }
 .dl-select-all-row {
   display: flex; align-items: center; gap: 10px; padding: 9px 12px;
   background: #161616; border-bottom: 1px solid #2a2a2a; cursor: pointer;
+  position: sticky; top: 0; z-index: 1;
 }
 .dl-select-all-row input[type=checkbox] { width: 15px; height: 15px; accent-color: var(--yellow); cursor: pointer; }
 .dl-select-all-label { font-size: 12px; font-weight: 700; color: #fff; }
@@ -128,7 +214,6 @@ body.studio-mode { overflow: hidden; }
 {% block body %}
 <script>
 document.body.classList.add('studio-mode');
-// Pass server-side data safely — avoids double-quote conflicts in x-data attributes
 window.__projectInit__ = {
   projectId:         {{ project.id | tojson }},
   slides:            {{ slides | tojson }},
@@ -139,56 +224,24 @@ window.__projectInit__ = {
 };
 </script>
 
-<div class="studio" x-data="projectEditor()" x-init="init()"
+<div class="studio-3" x-data="projectEditor()" x-init="init()"
      @open-download-modal.document="openDownloadModal()">
 
-  <!-- ══ Sidebar ══════════════════════════════════════════════════════════════ -->
-  <aside class="sidebar" style="display:flex;flex-direction:column;overflow:hidden">
+  <!-- ══ LEFT: Edit panel ══════════════════════════════════════════════════════ -->
+  <div class="edit-panel">
 
-    <!-- JSON reload strip -->
-    <div class="json-upload-strip">
-      <span>🔄 Reload JSON:</span>
-      <label>
-        Upload JSON
-        <input type="file" accept=".json,application/json" @change="reloadJson($event)" />
-      </label>
+    <!-- Header shows current slide name -->
+    <div class="edit-panel-header">
+      <div class="edit-panel-title">Editing</div>
+      <div class="edit-panel-slide-name"
+           x-text="activeDraftId ? (fields.game_name || 'Untitled slide') : 'No slide selected'"></div>
     </div>
 
-    <!-- Slide list -->
-    <div class="slide-list">
-      <div class="slide-list-header">
-        <span class="slide-list-title">Slides (<span x-text="slides.length"></span>)</span>
-        <button class="btn btn-xs btn-primary" @click="addSlide()" :disabled="addingSlide">
-          <template x-if="addingSlide"><span class="spinner" style="width:10px;height:10px"></span></template>
-          <template x-if="!addingSlide"><span>+ Add Slide</span></template>
-        </button>
-      </div>
+    <!-- Scrollable form body -->
+    <div class="edit-panel-body">
 
-      <div class="slide-tiles">
-        <template x-for="(slide, idx) in slides" :key="slide.draft_id">
-          <div class="slide-tile" :class="slide.draft_id === activeDraftId ? 'active' : ''"
-               @click="switchSlide(slide.draft_id)">
-            <template x-if="slide.preview_url">
-              <img :src="slide.preview_url" class="slide-thumb-sm" />
-            </template>
-            <template x-if="!slide.preview_url">
-              <div class="slide-thumb-sm-bg"></div>
-            </template>
-            <div class="slide-tile-info">
-              <div class="slide-tile-num" x-text="'Slide ' + (idx + 1)"></div>
-              <div class="slide-tile-name" x-text="slide.title || 'Untitled'"></div>
-            </div>
-            <button class="slide-delete-btn" @click.stop="deleteSlide(slide.draft_id, idx)" title="Delete slide">✕</button>
-          </div>
-        </template>
-      </div>
-    </div>
-
-    <!-- Edit form area -->
-    <div class="edit-form-area">
-
-      <div x-show="!activeDraftId" style="text-align:center;padding:40px 0;color:#555;font-size:13px">
-        Select a slide to edit
+      <div class="edit-panel-empty" x-show="!activeDraftId">
+        Select a slide from the right panel to start editing
       </div>
 
       <div x-show="activeDraftId">
@@ -257,22 +310,97 @@ window.__projectInit__ = {
       </div>
     </div>
 
-    <!-- Sidebar footer -->
-    <div class="sidebar-footer">
+    <!-- Footer: re-render + JSON reload -->
+    <div class="edit-panel-footer">
       <button class="btn btn-secondary btn-full" @click="regenerate()" :disabled="saving">
         <span x-show="saving" class="spinner"></span>
         🔄 Re-render
       </button>
+      <div class="json-reload-row">
+        <span>Reload JSON:</span>
+        <label>
+          Upload JSON
+          <input type="file" accept=".json,application/json" @change="reloadJson($event)" />
+        </label>
+      </div>
     </div>
 
-  </aside>
+  </div>
+
+  <!-- ══ CENTER: Canvas ════════════════════════════════════════════════════════ -->
+  <div class="canvas-panel">
+    <div class="canvas-area">
+      <div class="canvas-wrap">
+
+        <img x-show="activePreviewUrl"
+             :src="activePreviewUrl"
+             class="canvas-img"
+             :class="saving ? 'preview-loading' : ''"
+             @load="saving = false"
+             alt="Design preview" />
+
+        <img x-show="!activePreviewUrl"
+             src="/assets/background/market_radar_bg.png"
+             class="canvas-img" alt="Background" />
+
+        <div class="canvas-loading-overlay" x-show="saving">
+          <div style="text-align:center">
+            <div class="spinner-white" style="width:32px;height:32px;border-width:3px;margin:0 auto 10px"></div>
+            <div style="color:#fff;font-size:13px;font-weight:600" x-text="saveMsg || 'Rendering…'"></div>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="canvas-info">
+        <span style="color:#555">1080 × 1080 px</span>
+        <span style="color:#444">·</span>
+        <span style="color:#555" x-text="'v' + activeEditCount"></span>
+        <a :href="'/drafts/' + activeDraftId + '/export'" class="btn btn-yellow btn-sm" download style="margin-left:8px">⬇ Export</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ RIGHT: Slides panel ═══════════════════════════════════════════════════ -->
+  <div class="slides-panel">
+
+    <div class="slides-panel-header">
+      <span class="slides-panel-title">Slides (<span x-text="slides.length"></span>)</span>
+      <button class="btn btn-xs btn-primary" @click="addSlide()" :disabled="addingSlide">
+        <template x-if="addingSlide"><span class="spinner" style="width:10px;height:10px"></span></template>
+        <template x-if="!addingSlide"><span>+ Add</span></template>
+      </button>
+    </div>
+
+    <!-- Scrollable slide list -->
+    <div class="slides-panel-body">
+      <div class="slide-tiles">
+        <template x-for="(slide, idx) in slides" :key="slide.draft_id">
+          <div class="slide-tile" :class="slide.draft_id === activeDraftId ? 'active' : ''"
+               @click="switchSlide(slide.draft_id)">
+            <template x-if="slide.preview_url">
+              <img :src="slide.preview_url" class="slide-thumb-sm" />
+            </template>
+            <template x-if="!slide.preview_url">
+              <div class="slide-thumb-sm-bg"></div>
+            </template>
+            <div class="slide-tile-info">
+              <div class="slide-tile-num" x-text="'Slide ' + (idx + 1)"></div>
+              <div class="slide-tile-name" x-text="slide.title || 'Untitled'"></div>
+            </div>
+            <button class="slide-delete-btn" @click.stop="deleteSlide(slide.draft_id, idx)" title="Delete slide">✕</button>
+          </div>
+        </template>
+      </div>
+    </div>
+
+  </div>
 
   <!-- ══ Download modal ═══════════════════════════════════════════════════════ -->
   <div class="dl-overlay" x-show="dlModal.open" x-cloak @click.self="dlModal.open = false">
     <div class="dl-modal" @click.stop>
       <h3>⬇ Download Slides</h3>
 
-      <!-- Format toggle -->
       <div class="dl-format-row">
         <button class="dl-fmt-btn" :class="dlModal.format === 'png' ? 'active' : ''"
                 @click="dlModal.format = 'png'">PNG</button>
@@ -280,14 +408,11 @@ window.__projectInit__ = {
                 @click="dlModal.format = 'pdf'">PDF</button>
       </div>
 
-      <!-- Slide checklist -->
       <div class="dl-slides-box">
-        <!-- Select All row -->
         <label class="dl-select-all-row">
           <input type="checkbox" :checked="dlAllSelected" @change="dlToggleAll($event.target.checked)" />
           <span class="dl-select-all-label">Select All</span>
         </label>
-        <!-- Individual slides -->
         <template x-for="(slide, idx) in slides" :key="slide.draft_id">
           <label class="dl-slide-row">
             <input type="checkbox" :value="slide.draft_id"
@@ -306,7 +431,6 @@ window.__projectInit__ = {
         </template>
       </div>
 
-      <!-- Action buttons -->
       <div class="dl-actions">
         <button class="dl-cancel-btn" @click="dlModal.open = false">Cancel</button>
         <button class="dl-download-btn"
@@ -323,53 +447,17 @@ window.__projectInit__ = {
     </div>
   </div>
 
-  <!-- ══ Canvas area ══════════════════════════════════════════════════════════ -->
-  <div class="canvas-area">
-    <div class="canvas-wrap">
-
-      <img x-show="activePreviewUrl"
-           :src="activePreviewUrl"
-           class="canvas-img"
-           :class="saving ? 'preview-loading' : ''"
-           @load="saving = false"
-           alt="Design preview" />
-
-      <img x-show="!activePreviewUrl"
-           src="/assets/background/market_radar_bg.png"
-           class="canvas-img" alt="Background" />
-
-      <div class="canvas-loading-overlay" x-show="saving">
-        <div style="text-align:center">
-          <div class="spinner-white" style="width:32px;height:32px;border-width:3px;margin:0 auto 10px"></div>
-          <div style="color:#fff;font-size:13px;font-weight:600" x-text="saveMsg || 'Rendering…'"></div>
-        </div>
-      </div>
-
-    </div>
-
-    <div class="canvas-info">
-      <span style="color:#555">1080 × 1080 px</span>
-      <span style="color:#444">·</span>
-      <span style="color:#555" x-text="'v' + activeEditCount"></span>
-      <a :href="'/drafts/' + activeDraftId + '/export'" class="btn btn-yellow btn-sm" download style="margin-left:8px">⬇ Export</a>
-    </div>
-  </div>
-
 </div>
-
-<style>
-.preview-loading { opacity: .4; transition: opacity .3s; }
-</style>
 
 <script>
 function projectEditor() {
   const _init = window.__projectInit__ || {};
   return {
-    projectId:       _init.projectId || '',
-    slides:          _init.slides || [],
-    activeDraftId:   _init.initialDraftId || '',
+    projectId:        _init.projectId || '',
+    slides:           _init.slides || [],
+    activeDraftId:    _init.initialDraftId || '',
     activePreviewUrl: _init.initialPreviewUrl || '',
-    activeEditCount: _init.initialEditCount || 0,
+    activeEditCount:  _init.initialEditCount || 0,
     saving: false,
     saveMsg: '',
     addingSlide: false,
@@ -392,9 +480,6 @@ function projectEditor() {
     })(),
 
     async init() {
-      this._updateExportBtn();
-      // If the project has no slides yet (e.g. slide creation failed during setup),
-      // auto-create the first empty slide so the UI builder is immediately usable.
       if (this.slides.length === 0) {
         await this.addSlide();
       }
@@ -423,11 +508,15 @@ function projectEditor() {
           }))
         };
         this._setMsg('', 0);
-        this._updateExportBtn();
+        // Scroll the active tile into view in the right panel
+        this.$nextTick(() => {
+          const el = document.querySelector('.slide-tile.active');
+          if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        });
       } finally { this.saving = false; }
     },
 
-    /* ── Save (PATCH fields) ───────────────────────────────────────────────── */
+    /* ── Save ─────────────────────────────────────────────────────────────── */
     async save() {
       if (!this.activeDraftId) return;
       this.saving = true; this._setMsg('Saving…');
@@ -474,7 +563,7 @@ function projectEditor() {
       this.replaceImage(evt, `inspiration_${idx}_icon`);
     },
 
-    /* ── Regenerate ────────────────────────────────────────────────────────── */
+    /* ── Regenerate ─────────────────────────────────────────────────────────── */
     async regenerate() {
       if (!this.activeDraftId) return;
       this.saving = true; this._setMsg('Re-rendering…');
@@ -489,24 +578,21 @@ function projectEditor() {
       } finally { this.saving = false; }
     },
 
-    /* ── Delete slide ──────────────────────────────────────────────────────── */
+    /* ── Delete slide ───────────────────────────────────────────────────────── */
     async deleteSlide(draftId, idx) {
       if (this.slides.length <= 1) {
         alert('Cannot delete the only slide. Add another slide first.');
         return;
       }
       if (!confirm('Delete this slide? This cannot be undone.')) return;
-
       await fetch(`/drafts/${draftId}`, { method: 'DELETE' });
       this.slides.splice(idx, 1);
-
-      // If we deleted the active slide, switch to the first remaining one
       if (draftId === this.activeDraftId) {
         await this.switchSlide(this.slides[0].draft_id);
       }
     },
 
-    /* ── Add slide ─────────────────────────────────────────────────────────── */
+    /* ── Add slide ──────────────────────────────────────────────────────────── */
     async addSlide() {
       this.addingSlide = true;
       try {
@@ -519,7 +605,7 @@ function projectEditor() {
       } finally { this.addingSlide = false; }
     },
 
-    /* ── Reload JSON ───────────────────────────────────────────────────────── */
+    /* ── Reload JSON ────────────────────────────────────────────────────────── */
     async reloadJson(evt) {
       const file = evt.target.files[0]; if (!file) return;
       try {
@@ -540,7 +626,7 @@ function projectEditor() {
       } catch(e) { this._setMsg('Invalid JSON: ' + e.message); }
     },
 
-    /* ── Helpers ───────────────────────────────────────────────────────────── */
+    /* ── Helpers ────────────────────────────────────────────────────────────── */
     _syncSlideTile(draftId, updates) {
       const slide = this.slides.find(s => s.draft_id === draftId);
       if (slide) {
@@ -553,11 +639,6 @@ function projectEditor() {
       await fetch(`/api/projects/${this.projectId}/slides/${draftId}`, { method: 'PATCH' });
     },
 
-    _updateExportBtn() {
-      const btn = document.getElementById('export-btn');
-      if (btn && this.activeDraftId) btn.href = `/drafts/${this.activeDraftId}/export`;
-    },
-
     _setMsg(msg, clearAfter) {
       this.saveMsg = msg;
       const el = document.getElementById('save-msg');
@@ -565,9 +646,8 @@ function projectEditor() {
       if (clearAfter) setTimeout(() => { this.saveMsg = ''; if (el) el.textContent = ''; }, clearAfter);
     },
 
-    /* ── Download modal ────────────────────────────────────────────────────── */
+    /* ── Download modal ─────────────────────────────────────────────────────── */
     openDownloadModal() {
-      // Pre-select all slides
       this.dlModal.selected = this.slides.map(s => s.draft_id);
       this.dlModal.open = true;
       this.dlModal.downloading = false;
@@ -596,17 +676,13 @@ function projectEditor() {
         const resp = await fetch(`/api/projects/${this.projectId}/export`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            format: this.dlModal.format,
-            draft_ids: this.dlModal.selected,
-          }),
+          body: JSON.stringify({ format: this.dlModal.format, draft_ids: this.dlModal.selected }),
         });
         if (!resp.ok) {
           const err = await resp.json().catch(() => ({}));
           alert('Export failed: ' + (err.detail || resp.statusText));
           return;
         }
-        // Derive filename from Content-Disposition header or fallback
         const cd = resp.headers.get('Content-Disposition') || '';
         const match = cd.match(/filename="([^"]+)"/);
         const filename = match ? match[1] : `market-radar-export.${this.dlModal.format === 'pdf' ? 'pdf' : (this.dlModal.selected.length > 1 ? 'zip' : 'png')}`;
