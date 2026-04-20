@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -sL \"https://unpkg.com/htmx.org@1.9.12/dist/htmx.min.js\" -o app/web/static/htmx.min.js)",
+      "Bash(pip install:*)",
+      "Bash(python -c \"import fastapi, PIL, pydantic, yaml, httpx, jinja2, aiofiles; print\\('All imports OK'\\)\")",
+      "Bash(python3 -c \"import fastapi, PIL, pydantic, yaml, httpx, jinja2, aiofiles; print\\('All imports OK'\\)\")",
+      "Bash(python3 -c ':*)"
+    ]
+  }
+}

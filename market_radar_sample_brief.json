@@ -1,0 +1,67 @@
+{
+  "project_name": "Market Radar #34",
+  "slides": [
+    {
+      "main_game": {
+        "name": "Airport Jam: Crowd Escape",
+        "publisher": "Devrim Eribol",
+        "screenshot": { "source": "path", "path": "airport_jam.png" }
+      },
+      "inspirations": [
+        {
+          "name": "Pixel Flow",
+          "publisher": "loom games",
+          "icon": { "source": "auto", "query": "Pixel Flow loom games" }
+        },
+        {
+          "name": "Arrows by Lessmore",
+          "publisher": "Lessmore",
+          "icon": { "source": "auto", "query": "Arrows Lessmore" }
+        }
+      ]
+    },
+    {
+      "main_game": {
+        "name": "Clue Jam",
+        "publisher": "Onur Dede",
+        "screenshot": { "source": "path", "path": "clue_jam.png" }
+      },
+      "inspirations": [
+        {
+          "name": "Park Match",
+          "publisher": "Supersonic",
+          "icon": { "source": "auto", "query": "Park Match Supersonic" }
+        },
+        {
+          "name": "That's My Seat",
+          "publisher": "Rooftop Games",
+          "icon": { "source": "auto", "query": "Thats My Seat Rooftop Games" }
+        }
+      ]
+    },
+    {
+      "main_game": {
+        "name": "Puzzle Master 3D",
+        "publisher": "Studio XR",
+        "screenshot": { "source": "path", "path": "puzzle_master.png" }
+      },
+      "inspirations": [
+        {
+          "name": "Brain Teaser",
+          "publisher": "Think Co",
+          "icon": { "source": "auto", "query": "Brain Teaser puzzle game" }
+        },
+        {
+          "name": "Word Ninja",
+          "publisher": "Mobile Arts",
+          "icon": { "source": "auto", "query": "Word Ninja game" }
+        },
+        {
+          "name": "Match Hero",
+          "publisher": "Playrix",
+          "icon": { "source": "auto", "query": "Match Hero Playrix" }
+        }
+      ]
+    }
+  ]
+}
