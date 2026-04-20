@@ -108,35 +108,54 @@ class Orchestrator:
         self,
         app_id: str,
         inspirations_data: list[dict],  # [{"name": str, "publisher": str|None}]
+        store_url: str | None = None,
+        store_type: str | None = None,
+        game_name: str | None = None,
+        game_publisher: str | None = None,
     ) -> DraftState:
         """
-        Fetch the main game details from Google Play by app_id, resolve all
-        inspiration icons (auto / concept), render and persist a new draft.
+        Create a draft from a text-brief slide.
+
+        If game_name is provided (new format), skip the Play Store metadata
+        lookup and use the supplied name/publisher directly. Otherwise fall
+        back to fetching from Google Play (legacy format).
+
+        Supports both App Store and Play Store URLs for screenshot fetching.
         """
         import asyncio
         import functools
 
-        # Fetch main game metadata from Play Store
-        loop = asyncio.get_event_loop()
+        publisher = game_publisher
         screenshot_url: str | None = None
-        try:
-            app_info = await loop.run_in_executor(
-                None, functools.partial(_gplay_app, app_id)
+
+        if game_name:
+            # New format — name/publisher already parsed from text
+            logger.info("Using explicit game name %r (no store metadata fetch)", game_name)
+            # Try to fetch a screenshot from the store URL
+            screenshot_url = await self._fetch_screenshot_url(
+                app_id=app_id,
+                store_type=store_type or "unknown",
             )
-            game_name = app_info.get("title", app_id)
-            publisher = app_info.get("developer", None)
-            # Use the first gameplay screenshot as the slide screenshot
-            screenshots = app_info.get("screenshots", [])
-            if screenshots:
-                screenshot_url = screenshots[0]
-        except Exception as exc:
-            logger.warning("Play Store app lookup failed for %r: %s", app_id, exc)
-            game_name = app_id
-            publisher = None
+        else:
+            # Legacy format — fetch metadata from Play Store
+            loop = asyncio.get_event_loop()
+            try:
+                app_info = await loop.run_in_executor(
+                    None, functools.partial(_gplay_app, app_id)
+                )
+                game_name = app_info.get("title", app_id)
+                publisher = app_info.get("developer", None)
+                screenshots = app_info.get("screenshots", [])
+                if screenshots:
+                    screenshot_url = screenshots[0]
+            except Exception as exc:
+                logger.warning("Play Store app lookup failed for %r: %s", app_id, exc)
+                game_name = app_id
+                publisher = None
 
         draft_id = uuid.uuid4()
 
-        # Download the Play Store screenshot
+        # Download the store screenshot
         screenshot_key: str | None = None
         if screenshot_url:
             try:
@@ -146,7 +165,7 @@ class Orchestrator:
                     r.raise_for_status()
                     screenshot_key = f"drafts/{draft_id}/screenshot.png"
                     await self._store.put(screenshot_key, r.content)
-                    logger.info("Fetched Play Store screenshot for %r", app_id)
+                    logger.info("Fetched screenshot for %r", app_id)
             except Exception as exc:
                 logger.warning("Screenshot download failed for %r: %s", app_id, exc)
                 screenshot_key = None
@@ -192,6 +211,51 @@ class Orchestrator:
         await self._render_and_save(draft)
         await self._persist_draft(draft)
         return draft
+
+    async def _fetch_screenshot_url(self, app_id: str, store_type: str) -> str | None:
+        """
+        Try to obtain a screenshot URL for the given app.
+        - App Store: uses iTunes Search API to get artwork/screenshots
+        - Play Store: uses google-play-scraper
+        Returns None on failure (non-fatal).
+        """
+        import asyncio
+        import functools
+
+        if store_type == "appstore":
+            # iOS numeric id is stored as "ios_<number>"
+            numeric_id = app_id.removeprefix("ios_")
+            try:
+                import httpx
+                async with httpx.AsyncClient(timeout=10) as client:
+                    r = await client.get(
+                        "https://itunes.apple.com/lookup",
+                        params={"id": numeric_id, "country": "us"},
+                    )
+                    r.raise_for_status()
+                    data = r.json()
+                    results = data.get("results", [])
+                    if results:
+                        shots = results[0].get("screenshotUrls", [])
+                        if shots:
+                            return shots[0]
+            except Exception as exc:
+                logger.warning("iTunes screenshot lookup failed for %r: %s", app_id, exc)
+            return None
+
+        if store_type == "playstore":
+            loop = asyncio.get_event_loop()
+            try:
+                app_info = await loop.run_in_executor(
+                    None, functools.partial(_gplay_app, app_id)
+                )
+                screenshots = app_info.get("screenshots", [])
+                return screenshots[0] if screenshots else None
+            except Exception as exc:
+                logger.warning("Play Store screenshot lookup failed for %r: %s", app_id, exc)
+            return None
+
+        return None
 
     async def create_empty_draft(self, game_name: str = "New Slide") -> DraftState:
         """Create a blank draft (no screenshot, placeholder inspirations)."""

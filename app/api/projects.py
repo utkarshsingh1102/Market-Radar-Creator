@@ -150,6 +150,10 @@ async def create_project_from_text(body: CreateFromTextBody, request: Request):
                 {"name": insp.name, "publisher": insp.publisher}
                 for insp in parsed.inspirations
             ],
+            store_url=parsed.store_url,
+            store_type=parsed.store_type,
+            game_name=parsed.game_name or None,
+            game_publisher=parsed.game_publisher,
         )
         project.slides.append(ProjectSlide(
             draft_id=str(draft.id),
