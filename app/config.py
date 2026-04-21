@@ -31,6 +31,12 @@ class Settings(BaseSettings):
     # --- iTunes ---
     itunes_rate_limit: int = 20  # requests/minute
 
+    # --- OpenAI (DALL-E fallback icon generation) ---
+    openai_api_key: str = ""
+
+    # --- Supabase theme catalogue ---
+    supabase_theme_xlsx: Path = ROOT / "Supabase theme.xlsx"
+
     # --- database ---
     database_url: str = f"sqlite+aiosqlite:///{ROOT}/storage/drafts.db"
 

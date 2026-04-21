@@ -16,9 +16,11 @@ from app.config import settings, tokens
 from app.renderer.engine import render
 from app.resolvers.combined import CombinedIconResolver
 from app.resolvers.concept import ConceptIconResolver
+from app.resolvers.dalle import DalleIconResolver
 from app.resolvers.iconify import IconifyResolver
 from app.resolvers.itunes import ItunesIconResolver
 from app.resolvers.playstore import PlayStoreIconResolver
+from app.resolvers.supabase_theme import SupabaseThemeResolver
 from app.resolvers.upload import UploadIconResolver
 from app.schemas import (
     BriefIn,
@@ -70,6 +72,8 @@ class Orchestrator:
         self._icon_resolver = CombinedIconResolver(_itunes, _playstore)
         self._upload = UploadIconResolver(store)
         self._iconify = IconifyResolver(store)
+        self._supabase_theme = SupabaseThemeResolver(store, settings.supabase_theme_xlsx)
+        self._dalle = DalleIconResolver(store, settings.openai_api_key)
         self._concept = ConceptIconResolver(store)
 
     # ── Draft lifecycle ───────────────────────────────────────────────────────
@@ -594,6 +598,10 @@ class Orchestrator:
     async def _resolve_icon(self, icon_src, draft_id: uuid.UUID, idx: int):
         if icon_src.source == "auto":
             icon_bytes = await self._icon_resolver.resolve(icon_src.query)
+            if not icon_bytes:
+                icon_bytes = await self._supabase_theme.resolve(icon_src.query)
+            if not icon_bytes:
+                icon_bytes = await self._dalle.resolve(icon_src.query)
             if icon_bytes:
                 key = f"drafts/{draft_id}/icon_{idx}.png"
                 await self._store.put(key, icon_bytes)
@@ -608,6 +616,10 @@ class Orchestrator:
             return None, None, IconStatus.needs_upload
         elif icon_src.source == "concept":
             icon_bytes = await self._iconify.resolve(icon_src.name)
+            if not icon_bytes:
+                icon_bytes = await self._supabase_theme.resolve(icon_src.name)
+            if not icon_bytes:
+                icon_bytes = await self._dalle.resolve(icon_src.name)
             if not icon_bytes:
                 icon_bytes = await self._concept.resolve(icon_src.name)
             key = f"drafts/{draft_id}/icon_{idx}.png"
